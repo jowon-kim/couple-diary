@@ -1,126 +1,150 @@
 # AGENTS.md
 
-이 저장소를 처음 만나는 에이전트를 위한 절차서입니다. 사용자가 **"이거 어떻게 써?"**
-라고 하면 아래 [처음 설치](#처음-설치)를 따르세요.
+Instructions for an agent meeting this repository for the first time. When the
+user says **"how do I use this?"**, follow [First install](#first-install).
 
-## 이게 뭔가
+## What this is
 
-둘이 같이 쓰는 캘린더입니다. 일정을 넣으면 상대 폰 잠금화면에 알림이 뜹니다.
+A calendar two people share. Add an event and it lands on the other person's
+lock screen.
 
-- **빌드가 없습니다.** 번들러도 프레임워크도 없어요. `public/`이 그대로 서빙됩니다
-- **런타임 의존성 2개** — `@neondatabase/serverless`, `web-push`
-- Vercel 서버리스 함수 + Neon Postgres. 전부 무료 구간 안에서 돕니다
-- 문구·주석이 전부 한국어입니다
+- **No build step.** No bundler, no framework. `public/` is served as-is
+- **Two runtime dependencies** — `@neondatabase/serverless`, `web-push`
+- Vercel serverless functions + Neon Postgres, entirely within the free tiers
+- Ships in English and Korean. Code comments are Korean in the app internals and
+  English wherever a contributor arrives (`public/i18n/`, `public/holidays/`,
+  setup scripts)
 
-## 시작 전에 사용자에게 물을 것
+## Ask the user two things
 
-딱 둘입니다. 나머지는 물어보지 말고 알아서 하세요.
+Only two. Decide everything else yourself.
 
-1. **둘이 공유할 비밀번호** — 12자 이상을 권하세요. 주소만 알면 누구나 로그인 화면까지 닿습니다
-2. **프로젝트 이름** — Vercel 주소가 됩니다
+1. **The password they will share** — recommend 12 characters or more. Anyone
+   with the URL reaches the login screen
+2. **A project name** — it becomes the Vercel address
 
-## 사용자가 직접 해야 하는 것
+## What the user has to do themselves
 
-당신이 못 하는 건 이 둘뿐입니다.
+These two are the only things you cannot do.
 
-- **`vercel login`** — 브라우저가 열립니다. 사용자에게 로그인해 달라고 하세요
-- **아이폰에서 홈 화면에 추가** — 알림을 켜려면 반드시 필요합니다 (아래 참고)
+- **`vercel login`** — opens a browser. Ask them to sign in
+- **Add to Home Screen on iPhone** — required before notifications can be turned
+  on (see below)
 
-그 외에는 전부 터미널에서 됩니다.
+Everything else happens in the terminal.
 
-## 처음 설치
+## First install
 
 ```bash
 npm install
-npx vercel login                      # 사용자가 브라우저에서
+npx vercel login                      # the user, in a browser
 npx vercel link --yes
-npx vercel integration add neon       # DATABASE_URL이 프로젝트에 들어갑니다
+npx vercel integration add neon       # puts DATABASE_URL on the project
 ```
 
-명령 이름이 안 맞으면 `npx vercel integration --help`로 확인하세요. Vercel CLI가
-바뀝니다.
+If a command name doesn't match, check `npx vercel integration --help`. The
+Vercel CLI changes.
 
-VAPID 키 한 쌍을 만듭니다. 휴대폰 알림에 서명하는 키입니다.
+Make a VAPID key pair. These sign the phone notifications.
 
 ```bash
 node -e "console.log(require('web-push').generateVAPIDKeys())"
 ```
 
-환경변수 넷을 넣습니다 (`npx vercel env add <이름> production`).
+Set four environment variables (`npx vercel env add <NAME> production`).
 
-| 이름 | 값 |
+| Name | Value |
 |---|---|
-| `DIARY_PASSWORD` | 사용자가 정한 비밀번호 |
-| `DIARY_SECRET` | 아무 긴 무작위 문자열. 당신이 만들어도 됩니다 |
-| `VAPID_PUBLIC_KEY` | 위에서 만든 공개키 (87자) |
-| `VAPID_PRIVATE_KEY` | 위에서 만든 비밀키 (43자) |
+| `DIARY_PASSWORD` | the password the user chose |
+| `DIARY_SECRET` | any long random string. You can generate it |
+| `VAPID_PUBLIC_KEY` | the public key from above (87 characters) |
+| `VAPID_PRIVATE_KEY` | the private key from above (43 characters) |
 
-`DATABASE_URL`은 넣지 마세요. Neon 통합이 넣어줍니다.
+Do **not** set `DATABASE_URL`. The Neon integration provides it.
 
 ```bash
-npx vercel env pull .env.local        # 방금 넣은 값을 로컬로 가져옵니다
-npm run schema                        # 표를 만듭니다. 몇 번 돌려도 안전합니다
-npm run verify                        # ✓가 전부 뜰 때까지 고치세요
+npx vercel env pull .env.local        # brings those values down locally
+npm run schema                        # creates the tables. Safe to re-run
+npm run verify                        # fix things until every line is a ✓
 npx vercel deploy --prod
 ```
 
-마지막으로 사용자에게 **주소와 비밀번호**를 알려주고, 아이폰을 쓰면 홈 화면에
-추가해야 알림이 켜진다고 말해주세요.
+Finish by giving the user **the URL and the password**, and tell them that on
+iPhone they must add it to the home screen before notifications will turn on.
 
-## 절대 하지 말 것
+## Never do these
 
-- **이미 돌아가는 설치의 VAPID 키를 다시 만들지 마세요.** 켜둔 기기의 알림이 전부
-  죽고, 두 사람이 설정에서 다시 켜야 합니다
-- **`DIARY_SECRET`을 바꾸지 마세요.** 로그인 토큰을 여기서 뽑습니다. 둘 다 로그아웃됩니다
-- **`drop table` / `drop column`을 실행하지 마세요.** 되돌릴 수 없습니다. Neon 무료
-  플랜은 6시간 복원 창만 줍니다
-- **Neon 컴퓨트를 0.25 CU보다 올리지 마세요.** 무료 한도가 그만큼 빨리 닳습니다
+- **Never regenerate the VAPID keys on an install that is already running.**
+  Every device that had notifications on goes dead, and both people have to turn
+  them back on in settings
+- **Never change `DIARY_SECRET`.** Login tokens derive from it. Both people get
+  signed out
+- **Never run `drop table` or `drop column`.** There is no undo. The Neon free
+  plan gives only a six-hour restore window
+- **Never raise the Neon compute above 0.25 CU.** It burns the free allowance
+  that much faster
 
-## 확인하는 법
+## How to check your work
 
-| 명령 | 무엇 | 실패하면 |
+| Command | What | If it fails |
 |---|---|---|
-| `npm test` | 핸들러 통합 테스트 102개. 인메모리 Postgres에 진짜 핸들러를 물립니다 | 코드를 고쳤으면 반드시 통과시키세요 |
-| `npm run verify` | 환경변수·DB·표가 맞는지 | ✗마다 고치는 법이 같이 나옵니다. 종료 코드 1 |
+| `npm test` | 109 handler tests against an in-memory Postgres, using the real handlers | If you changed code, it has to pass |
+| `npm run verify` | environment variables, database, tables | Each ✗ prints the fix. Exits 1 |
+| `npm run i18n` | how complete each language pack is | A missing key falls back to English rather than breaking |
 
-**알림은 자동으로 확인할 방법이 없습니다.** 사용자에게 폰에서 켜보라고 하세요.
+**Notifications cannot be checked automatically.** Ask the user to try it on
+their phone.
 
-## 알림이 안 올 때
+## When notifications don't arrive
 
-거의 항상 이 셋 중 하나입니다.
+It is nearly always one of these three.
 
-1. **아이폰인데 사파리 탭에서 켜려 했다** — 홈 화면에 추가한 앱에서만 됩니다 (iOS 16.4+).
-   버튼이 눌리지 않는 걸로 보입니다
-2. **자기가 바꾼 일정이 자기한테 안 온다** — 설계입니다. 상대에게만 갑니다
-3. **잘 되다가 조용히 끊겼다** — 아이폰 웹푸시의 알려진 성질입니다. 앱을 열 때
-   구독이 사라졌으면 조용히 다시 걸지만, 그래도 안 오면 설정에서 껐다 켜세요
+1. **iPhone, tried from a Safari tab** — only works from an app added to the
+   home screen (iOS 16.4+). The button appears to do nothing
+2. **Your own change doesn't notify you** — that's the design. Only the other
+   person hears about it
+3. **It worked and then went quiet** — a known trait of iOS web push. The app
+   re-subscribes on open when it notices the subscription is gone; if that isn't
+   enough, toggle notifications off and on in settings
 
-## 코드를 고칠 때
+## Changing the code
 
-- **화면** — `public/app.js` · `index.html` · `style.css`. 빌드 없이 그대로 서빙됩니다
-- **서버** — `api/`는 얇은 핸들러고, SQL은 전부 `lib/store.js` 한 곳에 있습니다
-- 고쳤으면 `npm test`
+- **Screen** — `public/app.js` · `index.html` · `style.css`. Served as-is
+- **Server** — `api/` holds thin handlers; every SQL statement lives in
+  `lib/store.js`
+- **Wording** — never write a user-visible string inline. Add a key to
+  `public/i18n/en.js` and `ko.js`, then use `t('key')` on the screen or
+  `t(locale, 'key')` on the server. `npm run i18n` catches a pack that fell behind
+- Run `npm test` after any change
 
-## 사용자가 자주 묻는 커스텀
+## Customizations users ask for
 
-**코드를 안 건드려도 되는 것** — 앱 이름, 인사말, 두 사람 이름, 처음 만난 날,
-테마 고르기, 달력 사진. 전부 앱 안 **설정** 화면에 있습니다. 먼저 여기를 안내하세요.
+**No code needed** — app name, greeting, both names, the day they met, language,
+holidays, theme, calendar photos. All of it is in the app's **settings** screen.
+Point them there first.
 
-**파일만 갈아끼우면 되는 것**
+**Swap a file**
 
-| 파일 | 어디에 쓰이나 |
+| File | Where it shows up |
 |---|---|
-| `public/mascot.png` | 로그인 화면의 큰 그림 |
-| `public/favicon.png` | 브라우저 탭과 알림창 아이콘 |
-| `public/badge.png` | 폰 상단바 알림 아이콘 |
+| `public/mascot.png` | the big image on the login screen |
+| `public/favicon.png` | browser tab and notification icon |
+| `public/badge.png` | the status-bar icon on Android |
 
-`badge.png`는 **안드로이드가 알파(모양)만 씁니다.** 색은 시스템이 칠해요 — 밝은
-상단바면 회색, 어두우면 흰색. 컬러 사진을 넣으면 뭉개진 덩어리가 됩니다. 96px에
-흰색 + 알파로만 저장하세요.
+`badge.png`: **Android uses only the alpha channel.** The system paints the
+color — grey on a light status bar, white on a dark one. A color photo turns
+into a smudge. Export at 96px, white on transparent.
 
-**코드를 고쳐야 하는 것**
+**Needs a code change**
 
-- **테마 추가** — `style.css`의 `[data-theme="..."]` 블록을 복사해 값만 갈고,
-  `app.js`의 `THEMES` 배열에 이름을 넣습니다. **두 곳입니다**
-- **공휴일** — `app.js`의 `LUNAR_DAYS` 표. 2036년까지 적혀 있습니다
-- **홈 화면 아이콘 밑 글씨** — `public/manifest.json`. 설정을 따라가지 않습니다
+- **A new theme** — copy a `[data-theme="..."]` block in `style.css`, change the
+  values, add the id to `THEMES` in `app.js`, and add a `theme.<id>` key to the
+  language packs. **Three places**
+- **A new language** — copy `public/i18n/en.js`, translate the values, add a
+  `<script>` in `index.html`, add the tag to `LOCALE_NAMES` in `i18n/index.js`,
+  and add an import in `lib/i18n.js` so notifications get it too
+- **Holidays for another country** — copy `public/holidays/kr.js`, keep the
+  shape, register it under a short code, load it in `index.html`, and add
+  `region.<code>` plus the holiday names to the language packs
+- **The label under the home-screen icon** — `public/manifest.json`. It does not
+  follow the setting

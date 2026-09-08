@@ -39,11 +39,11 @@ export async function runSchema(exec, text) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   if (!url) {
-    console.error('DATABASE_URL이 없습니다. `vercel env pull .env.local` 로 받아오거나 직접 넣어주세요.');
+    console.error('DATABASE_URL is not set. Run `vercel env pull .env.local`, or set it yourself.');
     process.exit(1);
   }
   const { neon } = await import('@neondatabase/serverless');
   const sql = neon(url);
   const n = await runSchema((stmt) => sql.query(stmt));
-  console.log(`표와 인덱스를 맞췄습니다 — 문장 ${n}개 실행.`);
+  console.log(`Tables and indexes are up to date — ran ${n} statements.`);
 }
