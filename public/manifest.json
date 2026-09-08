@@ -1,0 +1,13 @@
+{
+  "name": "우리어리",
+  "short_name": "우리어리",
+  "lang": "ko",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FBF1F1",
+  "theme_color": "#FBF3F4",
+  "icons": [
+    { "src": "/favicon.png", "sizes": "192x192", "type": "image/png", "purpose": "any" }
+  ]
+}
