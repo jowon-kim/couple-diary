@@ -19,21 +19,39 @@ alter table events add column if not exists end_time text;
 
 create index if not exists events_start_date_idx on events (start_date);
 
+-- 이름과 인사말이 비어 있으면 화면이 그 언어의 기본값을 씁니다 (public/i18n/).
+-- 여기에 값을 박아두면 처음 쓴 언어의 이름이 굳어버립니다.
 create table if not exists settings (
   id              smallint primary key default 1 check (id = 1),
-  title           text not null default '우리어리',
-  subtitle        text not null default '우리 오늘 뭐하지',
-  theme           text not null default '복숭아',
-  name_a          text not null default '나',
-  name_b          text not null default '너',
+  title           text not null default '',
+  subtitle        text not null default '',
+  theme           text not null default 'peach',
+  locale          text not null default 'en',
+  region          text not null default 'none',
+  name_a          text not null default '',
+  name_b          text not null default '',
   since           date,
   show_milestones boolean not null default true
 );
 
--- 달력 이름과 인사말. 이미 만들어진 테이블에도 안전하게 반영됩니다.
-alter table settings add column if not exists title text not null default '우리어리';
-alter table settings add column if not exists subtitle text not null default '우리 오늘 뭐하지';
-alter table settings add column if not exists theme text not null default '복숭아';
+-- 이미 만들어진 표에도 안전하게 반영됩니다.
+alter table settings add column if not exists title text not null default '';
+alter table settings add column if not exists subtitle text not null default '';
+alter table settings add column if not exists theme text not null default 'peach';
+
+-- 언어와 공휴일 묶음. 둘 다 두 사람이 같은 것을 봅니다.
+alter table settings add column if not exists locale text not null default 'en';
+alter table settings add column if not exists region text not null default 'none';
+
+-- 예전 판은 테마를 한국어 이름으로 담았습니다. 쓰던 색을 잃지 않게 id로 옮깁니다.
+update settings set theme = case theme
+  when '복숭아' then 'peach'
+  when '바다'   then 'ocean'
+  when '숲'     then 'forest'
+  when '살구'   then 'apricot'
+  when '밤'     then 'night'
+  else theme
+end;
 
 insert into settings (id) values (1) on conflict (id) do nothing;
 

@@ -10,13 +10,13 @@ export default guard(async (req, res) => {
   if (!requireAuth(req, res)) return;
 
   const { mime, data } = body(req);
-  if (!ALLOWED.includes(mime)) throw new ValidationError('사진 파일만 넣을 수 있어요');
+  if (!ALLOWED.includes(mime)) throw new ValidationError('error.imageOnly');
   if (typeof data !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
-    throw new ValidationError('사진을 읽지 못했어요');
+    throw new ValidationError('error.photoRead');
   }
-  if (Buffer.byteLength(data, 'base64') > MAX_BYTES) throw new ValidationError('사진이 너무 커요');
+  if (Buffer.byteLength(data, 'base64') > MAX_BYTES) throw new ValidationError('error.photoTooBig');
   if (await countPhotos() >= MAX_PHOTOS) {
-    throw new ValidationError(`사진은 ${MAX_PHOTOS}장까지만 넣을 수 있어요`);
+    throw new ValidationError('error.photoLimit');
   }
 
   res.status(201).json({ id: await insertPhoto(mime, data) });

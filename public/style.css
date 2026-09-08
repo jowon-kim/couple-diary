@@ -84,7 +84,7 @@
    ═══════════════════════════════════ */
 
 /* ── 바다 ── */
-[data-theme="바다"] {
+[data-theme="ocean"] {
   --paper: #F1F6F8;
   --paper-2: #F7FBFC;
   --surface: #FFFFFF;
@@ -138,7 +138,7 @@
 }
 
 /* ── 숲 ── */
-[data-theme="숲"] {
+[data-theme="forest"] {
   --paper: #F5F5EE;
   --paper-2: #FAFAF4;
   --surface: #FFFFFF;
@@ -192,7 +192,7 @@
 }
 
 /* ── 살구 ── */
-[data-theme="살구"] {
+[data-theme="apricot"] {
   --paper: #FBF4EE;
   --paper-2: #FDF9F5;
   --surface: #FFFFFF;
@@ -246,7 +246,7 @@
 }
 
 /* ── 밤 ── 어두운 바탕. 글자와 면을 뒤집습니다. */
-[data-theme="밤"] {
+[data-theme="night"] {
   --paper: #1B1720;
   --paper-2: #221D28;
   --surface: #272130;

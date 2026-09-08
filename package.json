@@ -4,9 +4,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test.mjs",
+    "test": "node test.mjs && node i18n-test.mjs",
     "schema": "node schema.mjs",
-    "verify": "node verify.mjs"
+    "verify": "node verify.mjs",
+    "i18n": "node i18n-check.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.0.0",

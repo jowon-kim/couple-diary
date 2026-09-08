@@ -9,20 +9,20 @@ export default guard(async (req, res) => {
   if (!requireAuth(req, res)) return;
 
   const { id } = req.query;
-  if (!UUID.test(String(id || ''))) return res.status(404).json({ error: '없는 일정이에요' });
+  if (!UUID.test(String(id || ''))) return res.status(404).json({ error: 'error.noSuchEvent' });
 
   if (req.method === 'DELETE') {
     const gone = await removeEvent(id);
-    if (!gone) return res.status(404).json({ error: '없는 일정이에요' });
-    await notify('일정 지움', gone, req.query.actor);
+    if (!gone) return res.status(404).json({ error: 'error.noSuchEvent' });
+    await notify('push.deletedEvent', gone, req.query.actor);
     return res.status(204).end();
   }
 
   const existing = await findEvent(id);
-  if (!existing) return res.status(404).json({ error: '없는 일정이에요' });
+  if (!existing) return res.status(404).json({ error: 'error.noSuchEvent' });
 
   const input = body(req);
   const updated = await updateEvent(id, normalizeEvent(input, existing));
-  await notify('일정 고침', updated, input.actor);
+  await notify('push.editedEvent', updated, input.actor);
   res.status(200).json(updated);
 });

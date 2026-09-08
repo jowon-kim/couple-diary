@@ -15,7 +15,7 @@ self.addEventListener('push', (event) => {
     /* 형식이 깨졌으면 기본 문구로 띄웁니다 — 안 띄우면 브라우저가 경고를 냅니다 */
   }
 
-  event.waitUntil(self.registration.showNotification(data.title || '알림', {
+  event.waitUntil(self.registration.showNotification(data.title || 'Couple Diary', {
     body: data.body || '',
     icon: '/favicon.png',
     // 갤럭시 상단바에 뜨는 작은 아이콘. 안드로이드가 모양만 떼어다 쓰기 때문에

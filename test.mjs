@@ -159,7 +159,7 @@ ok('settings saved', r.status === 200 && r.body.names.b === '너');
 ok('since is a plain string', r.body.since === '2023-05-14', String(r.body.since));
 
 r = await call(settings, { method: 'PATCH', token, body: { names: { a: '', b: '너' } } });
-ok('empty name falls back', r.body.names.a === '나');
+ok('an empty name stays empty for the language pack to fill', r.body.names.a === '', r.body.names.a);
 ok('partial patch keeps since', r.body.since === '2023-05-14');
 
 r = await call(settings, { method: 'PATCH', token, body: { since: null } });
@@ -167,7 +167,7 @@ ok('since can be cleared', r.body.since === null);
 
 /* 달력 이름 */
 r = await call(settings, { method: 'PATCH', token });
-ok('title defaults for a fresh calendar', r.body.title === '우리어리', r.body.title);
+ok('a fresh calendar has no name of its own', r.body.title === '', r.body.title);
 
 await call(settings, { method: 'PATCH', token, body: { names: { a: '나', b: '너' }, since: '2023-05-14' } });
 r = await call(settings, { method: 'PATCH', token, body: { title: '우리어리' } });
@@ -176,38 +176,56 @@ ok('naming the calendar keeps the rest',
   r.body.names.a === '나' && r.body.since === '2023-05-14', JSON.stringify(r.body));
 
 r = await call(settings, { method: 'PATCH', token, body: { title: '   ' } });
-ok('blank title falls back', r.body.title === '우리어리', r.body.title);
+ok('a blank title stays blank', r.body.title === '', r.body.title);
 
 r = await call(settings, { method: 'PATCH', token, body: { title: '열두글자를넘기면잘립니다정말로' } });
 ok('title clipped to 12', r.body.title.length === 12, r.body.title);
 
 /* 인사말도 따로 고칩니다 — 이름에서 만들어 쓰지 않습니다 */
 r = await call(settings, { method: 'PATCH', token });
-ok('greeting has a default', r.body.subtitle === '우리 오늘 뭐하지', r.body.subtitle);
+ok('a fresh calendar has no greeting of its own', r.body.subtitle === '', r.body.subtitle);
 
 r = await call(settings, { method: 'PATCH', token, body: { subtitle: '밥 먹었니' } });
 ok('greeting saved', r.body.subtitle === '밥 먹었니', r.body.subtitle);
 ok('greeting does not touch the name', r.body.title.length === 12, r.body.title);
 
 r = await call(settings, { method: 'PATCH', token, body: { subtitle: '  ' } });
-ok('blank greeting falls back', r.body.subtitle === '우리 오늘 뭐하지', r.body.subtitle);
+ok('a blank greeting stays blank', r.body.subtitle === '', r.body.subtitle);
 
 r = await call(settings, { method: 'PATCH', token, body: { subtitle: '스무글자를넘기면잘립니다정말로그렇습니다진짜로' } });
 ok('greeting clipped to 20', r.body.subtitle.length === 20, r.body.subtitle);
 
 /* 테마는 둘이 같이 쓸 수 있어야 합니다 */
 r = await call(settings, { method: 'PATCH', token });
-ok('theme has a default', r.body.theme === '복숭아', r.body.theme);
+ok('theme has a default', r.body.theme === 'peach', r.body.theme);
 
-r = await call(settings, { method: 'PATCH', token, body: { theme: '밤' } });
-ok('shared theme saved', r.body.theme === '밤', r.body.theme);
+r = await call(settings, { method: 'PATCH', token, body: { theme: 'night' } });
+ok('shared theme saved', r.body.theme === 'night', r.body.theme);
 
 r = await call(state, { token });
-ok('the other side sees the shared theme', r.body.settings.theme === '밤', r.body.settings.theme);
+ok('the other side sees the shared theme', r.body.settings.theme === 'night', r.body.settings.theme);
 
 r = await call(settings, { method: 'PATCH', token, body: { theme: '' } });
-ok('blank theme falls back', r.body.theme === '복숭아', r.body.theme);
+ok('blank theme falls back', r.body.theme === 'peach', r.body.theme);
 await call(settings, { method: 'PATCH', token, body: { subtitle: '우리 오늘 뭐하지' } });
+
+/* 언어와 공휴일 묶음도 둘이 같이 씁니다 */
+r = await call(settings, { method: 'PATCH', token });
+ok('language defaults to English', r.body.locale === 'en', r.body.locale);
+ok('no holiday set by default', r.body.region === 'none', r.body.region);
+
+r = await call(settings, { method: 'PATCH', token, body: { locale: 'ko', region: 'kr' } });
+ok('language saved', r.body.locale === 'ko', r.body.locale);
+ok('holiday set saved', r.body.region === 'kr', r.body.region);
+
+r = await call(state, { token });
+ok('the other side sees the language', r.body.settings.locale === 'ko', r.body.settings.locale);
+
+r = await call(settings, { method: 'PATCH', token, body: { showMilestones: true } });
+ok('changing another setting keeps the language', r.body.locale === 'ko', r.body.locale);
+
+r = await call(settings, { method: 'PATCH', token, body: { locale: '' } });
+ok('a blank language falls back to English', r.body.locale === 'en', r.body.locale);
 
 r = await call(state, { token });
 ok('state carries the title', r.body.settings.title === r.body.settings.title && r.body.settings.title.length === 12);
@@ -216,7 +234,7 @@ ok('state carries the title', r.body.settings.title === r.body.settings.title &&
 await pg.query('alter table settings drop column subtitle, drop column theme');
 r = await call(state, { token });
 ok('a missing column does not wipe the ones that exist',
-  r.status === 200 && r.body.settings.title.length === 12 && r.body.settings.subtitle === '우리 오늘 뭐하지' && r.body.settings.theme === '복숭아',
+  r.status === 200 && r.body.settings.title.length === 12 && r.body.settings.subtitle === '' && r.body.settings.theme === 'peach',
   JSON.stringify(r.body.settings));
 ok('the rest of the settings survive', r.body.settings.names.b === '너');
 
@@ -383,8 +401,8 @@ r = await call(eventsCreate, {
 });
 const visit = r.body;
 ok('both devices get a push', r.status === 201 && pushed.length === 2, String(pushed.length));
-ok('push says who changed it', pushed[0]?.title === '🍒 새 일정 · 너', JSON.stringify(pushed[0]?.title));
-ok('push says what and when', pushed[0]?.body === '9월 12일 (토) 19:00\n치과', JSON.stringify(pushed[0]?.body));
+ok('push says who changed it', pushed[0]?.title === 'New event · 너', JSON.stringify(pushed[0]?.title));
+ok('push says what and when', pushed[0]?.body === 'Sat, September 12 19:00\n치과', JSON.stringify(pushed[0]?.body));
 ok('push groups by event', pushed[0]?.tag === visit.id);
 
 /* 내가 바꾼 건 나한테 오지 않는다 */
@@ -398,7 +416,7 @@ pushed.length = 0;
 await call(eventById, {
   method: 'PATCH', token, query: { id: visit.id }, body: { title: '치과 (미뤘어요)', actor: 'b' },
 });
-ok('edit pushes', pushed[0]?.title.includes('일정 고침'), JSON.stringify(pushed[0]?.title));
+ok('edit pushes', pushed[0]?.title.includes('Event changed'), JSON.stringify(pushed[0]?.title));
 
 pushed.length = 0;
 r = await call(eventById, { method: 'DELETE', token, query: { id: visit.id, actor: 'b' } });

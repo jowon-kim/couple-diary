@@ -2,7 +2,7 @@
 
 /* ── 작은 도구들 ─────────────────────────── */
 const $ = (id) => document.getElementById(id);
-const WEEK = ['일', '월', '화', '수', '목', '금', '토'];
+let WEEK = [];   // 요일 이름. 언어가 정해질 때 Intl에서 채웁니다
 const pad = (n) => String(n).padStart(2, '0');
 const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
@@ -67,19 +67,30 @@ function budIcon(cls) {
   return span;
 }
 
-function label(dateStr, withYear = true) {
-  const d = parse(dateStr);
-  const y = withYear ? `${d.getFullYear()}년 ` : '';
-  return `${y}${d.getMonth() + 1}월 ${d.getDate()}일 ${WEEK[d.getDay()]}요일`;
+/* 요일 이름은 Intl이 줍니다 — 언어를 하나 더 넣어도 여기 적을 게 없습니다.
+   2024-01-07이 일요일이라 거기서 이레를 셉니다. */
+function refreshWeekNames() {
+  const short = i18n.dateFmt({ weekday: 'short' });
+  const sunday = new Date(2024, 0, 7);
+  WEEK = Array.from({ length: 7 }, (_, i) => short.format(addDays(sunday, i)));
+  document.querySelectorAll('[data-week]').forEach((el) => {
+    el.textContent = WEEK[Number(el.dataset.week)];
+  });
 }
 
-/* 24시간 "HH:MM" → "오후 6:30" 같은 예쁜 표기 */
+function label(dateStr, withYear = true) {
+  const d = parse(dateStr);
+  return i18n.dateFmt(withYear
+    ? { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
+    : { month: 'long', day: 'numeric', weekday: 'long' }).format(d);
+}
+
+/* 24시간 "HH:MM" → 그 언어가 쓰는 표기 ("오후 6:30" · "6:30 PM") */
 function prettyTime(t) {
   if (!t) return null;
   const [h, m] = t.split(':').map(Number);
-  const ampm = h < 12 ? '오전' : '오후';
-  const hh = h % 12 === 0 ? 12 : h % 12;
-  return `${ampm} ${hh}:${pad(m)}`;
+  return i18n.dateFmt({ hour: 'numeric', minute: '2-digit' })
+    .format(new Date(2000, 0, 1, h, m));
 }
 
 /* 시작 시각(+ 끝 시각)을 "오후 6:00" 또는 "오후 6:00 ~ 오후 8:00" 으로 */
@@ -150,7 +161,7 @@ function pointOut(message, field) {
 }
 
 /* 브라우저 기본 confirm 대신 우리 창으로 물어봅니다 */
-function ask(message, yesLabel = '네') {
+function ask(message, yesLabel = t('common.yes')) {
   return new Promise((resolve) => {
     const box = $('ask');
     const yes = $('ask-yes');
@@ -205,12 +216,14 @@ const api = {
       });
     } catch {
       // 인터넷이 끊겼거나 서버에 닿지 못한 경우 — 영어 오류 대신 우리 말로
-      throw new Error('인터넷이 안 닿아요. 잠시 뒤 다시 해볼까요?');
+      throw new Error(t('error.offline'));
     }
-    if (res.status === 401) { signOut(); throw new Error('다시 로그인해 주세요'); }
+    if (res.status === 401) { signOut(); throw new Error(t('error.relogin')); }
     if (!res.ok) {
       const info = await res.json().catch(() => ({}));
-      throw new Error(info.error || '저장하지 못했어요');
+      /* 서버는 문구가 아니라 키를 돌려줍니다. 모르는 키는 t()가 그대로
+         돌려주니, 옛 서버가 보낸 문장도 그냥 보입니다. */
+      throw new Error(info.error ? t(info.error) : t('error.saveFailed'));
     }
     return res.status === 204 ? null : res.json();
   },
@@ -220,10 +233,12 @@ const api = {
 const state = {
   events: [],
   settings: {
-    title: '우리어리',
-    subtitle: '우리 오늘 뭐하지',
-    theme: '복숭아',
-    names: { a: '나', b: '너' },
+    title: '',        // 비어 있으면 그 언어의 기본 이름을 씁니다
+    subtitle: '',
+    theme: 'peach',
+    locale: '',       // 서버가 알려주기 전에는 브라우저 언어를 씁니다
+    region: 'none',   // 공휴일 묶음 (public/holidays/)
+    names: { a: '', b: '' },
     since: null,
     showMilestones: true,
   },
@@ -241,19 +256,24 @@ const state = {
 
 /** 앱 이름은 설정값입니다. 상단 바·인트로·브라우저 탭·사용법 제목이 같이 따라갑니다. */
 function renderTitle() {
-  const title = state.settings.title || '우리어리';
-  const sub = state.settings.subtitle || '우리 오늘 뭐하지';
-  // 인트로와 로그인 화면은 서버에 묻기 전에 뜹니다. 다음에 열 때 쓰려고 적어둡니다.
-  localStorage.setItem('diary_title', title);
-  localStorage.setItem('diary_sub', sub);
+  const title = state.settings.title || t('default.title');
+  const sub = state.settings.subtitle || t('default.subtitle');
+  /* 인트로와 로그인 화면은 서버에 묻기 전에 뜹니다. 다음에 열 때 쓰려고 적어두되,
+     직접 정한 이름만 적습니다. 기본 이름까지 적으면 처음 뜬 언어의 이름이 굳어
+     나중에 언어를 바꿔도 안 따라옵니다. */
+  localStorage.setItem('diary_title', state.settings.title || '');
+  localStorage.setItem('diary_sub', state.settings.subtitle || '');
   document.title = title;
   document.querySelectorAll('.app-name').forEach((el) => { el.textContent = title; });
-  $('guide-title').textContent = title + ' 사용법';
+  $('guide-title').textContent = t('guide.titleFor', { name: title });
   document.querySelectorAll('.app-sub').forEach((el) => { el.textContent = sub; });
 }
 
-const nameOf = (owner) =>
-  owner === 'a' ? state.settings.names.a : owner === 'b' ? state.settings.names.b : '우리';
+const nameOf = (owner) => (
+  owner === 'a' ? (state.settings.names.a || t('default.nameA'))
+    : owner === 'b' ? (state.settings.names.b || t('default.nameB'))
+      : t('app.both')
+);
 
 /* ── 일정 펼치기 (반복 / 여러 날) ─────────── */
 function expand(from, to) {
@@ -298,7 +318,7 @@ function expand(from, to) {
           title: event.title,
           time: span > 0 ? null : event.time,
           endTime: span > 0 ? null : event.endTime,
-          part: span > 0 ? `${i + 1}/${span + 1}일째` : null,
+          part: span > 0 ? t('item.part', { i: i + 1, total: span + 1 }) : null,
           sortKey: (span > 0 || !event.time) ? '00:00' : event.time,
         });
       }
@@ -313,7 +333,7 @@ function expand(from, to) {
       if (n <= 0) continue;
       // 만난 날이 1일째 — 100일은 만난 날 + 99일
       put(ymd(addDays(parse(since), n - 1)), {
-        milestone: true, owner: 'milestone', title: `${n}일`, sortKey: '00:00',
+        milestone: true, owner: 'milestone', title: t('milestone.days', { n, count: n }), sortKey: '00:00',
       });
     }
     const sinceDate = parse(since);
@@ -321,7 +341,7 @@ function expand(from, to) {
       const years = y - sinceDate.getFullYear();
       if (years <= 0) continue;
       put(ymd(new Date(y, sinceDate.getMonth(), sinceDate.getDate())), {
-        milestone: true, owner: 'milestone', title: `${years}주년`, sortKey: '00:00',
+        milestone: true, owner: 'milestone', title: t('milestone.years', { n: years, count: years }), sortKey: '00:00',
       });
     }
   }
@@ -333,6 +353,8 @@ function expand(from, to) {
 }
 
 /* ── 공휴일 ──────────────────────────────── */
+/* 어느 나라 공휴일을 쓸지는 설정입니다. 묶음 하나가 public/holidays/ 파일
+   하나이고, 날짜 → 문구 키를 돌려줍니다. 새 나라를 넣으려면 그 폴더를 보세요. */
 /**
  * 달력에 빨갛게 뜨는 날들. 서버에 묻지 않고 여기서 셉니다.
  *
@@ -340,90 +362,11 @@ function expand(from, to) {
  * 계산으로 못 구합니다 — 한국천문연구원이 발표한 양력 날짜를 적어뒀어요.
  * 표에 없는 해는 양력 공휴일만 뜹니다.
  */
-const LUNAR_DAYS = {
-  //     설날      부처님 오신 날  추석
-  2024: ['02-10', '05-15', '09-17'],
-  2025: ['01-29', '05-05', '10-06'],
-  2026: ['02-17', '05-24', '09-25'],
-  2027: ['02-07', '05-13', '09-15'],
-  2028: ['01-27', '05-02', '10-03'],
-  2029: ['02-13', '05-20', '09-22'],
-  2030: ['02-03', '05-09', '09-12'],
-  2031: ['01-23', '05-28', '10-01'],
-  2032: ['02-11', '05-16', '09-19'],
-  2033: ['01-31', '05-06', '09-08'],
-  2034: ['02-19', '05-25', '09-27'],
-  2035: ['02-08', '05-15', '09-16'],
-  2036: ['01-28', '05-03', '10-04'],
-};
-
-/* [날짜, 이름, 대체공휴일이 붙는 날인지]
-   새해와 현충일만 대체공휴일이 없습니다 (관공서의 공휴일에 관한 규정 제3조). */
-const SOLAR_DAYS = [
-  ['01-01', '새해', false],
-  ['03-01', '삼일절', true],
-  ['05-05', '어린이날', true],
-  ['06-06', '현충일', false],
-  ['08-15', '광복절', true],
-  ['10-03', '개천절', true],
-  ['10-09', '한글날', true],
-  ['12-25', '크리스마스', true],
-];
-
-const holidayCache = new Map();
-
-/**
- * 그 해 공휴일 전부. 날짜 → 이름.
- *
- * 대체공휴일 규칙: 설날·추석 연휴는 일요일과 겹칠 때만, 나머지는 토요일이나
- * 일요일과 겹칠 때 하루가 붙습니다. 평일에 두 공휴일이 겹쳐도 하루가 붙어요.
- * 붙는 자리는 연휴가 끝난 뒤 처음 오는 평일입니다.
- */
-function holidaysOfYear(year) {
-  if (holidayCache.has(year)) return holidayCache.get(year);
-
-  // sub: 'weekend' = 토·일에 겹치면, 'sunday' = 일요일에 겹칠 때만, null = 대체 없음
-  const base = [];
-  for (const [md, name, replaceable] of SOLAR_DAYS) {
-    base.push({ date: `${year}-${md}`, name, sub: replaceable ? 'weekend' : null });
-  }
-  const lunar = LUNAR_DAYS[year];
-  if (lunar) {
-    const [seol, buddha, chuseok] = lunar;
-    base.push({ date: `${year}-${buddha}`, name: '부처님 오신 날', sub: 'weekend' });
-    for (const [name, md] of [['설', seol], ['추석', chuseok]]) {
-      const day = parse(`${year}-${md}`);
-      base.push({ date: ymd(addDays(day, -1)), name: `${name} 연휴`, sub: 'sunday' });
-      base.push({ date: ymd(day), name: name === '설' ? '설날' : name, sub: 'sunday' });
-      base.push({ date: ymd(addDays(day, 1)), name: `${name} 연휴`, sub: 'sunday' });
-    }
-  }
-
-  const days = new Map();
-  for (const h of base) if (!days.has(h.date)) days.set(h.date, h.name);
-
-  const needs = new Set();
-  for (const h of base) {
-    if (!h.sub) continue;
-    const week = parse(h.date).getDay();
-    const weekend = week === 0 || week === 6;
-    if (h.sub === 'weekend' ? weekend : week === 0) needs.add(h.date);
-    // 평일인데 다른 공휴일과 같은 날인 경우 (어린이날과 부처님 오신 날이 겹치는 해)
-    else if (!weekend && base.filter((x) => x.date === h.date).length > 1) needs.add(h.date);
-  }
-  for (const date of [...needs].sort()) {
-    let d = addDays(parse(date), 1);
-    while (days.has(ymd(d)) || d.getDay() === 0 || d.getDay() === 6) d = addDays(d, 1);
-    days.set(ymd(d), '대체공휴일');
-  }
-
-  holidayCache.set(year, days);
-  return days;
-}
-
 /** 그날의 공휴일 이름, 아니면 null. */
 function holidayOn(dateStr) {
-  return holidaysOfYear(Number(dateStr.slice(0, 4))).get(dateStr) || null;
+  const set = window.HOLIDAYS[state.settings.region] || window.HOLIDAYS.none;
+  const key = set.holidays(Number(dateStr.slice(0, 4)), { ymd, parse, addDays }).get(dateStr);
+  return key ? t(key) : null;
 }
 
 /* ── 달력 그리기 ─────────────────────────── */
@@ -455,8 +398,9 @@ function buildMonthCells(year, monthIndex) {
     if (holiday) cell.classList.add('holiday');
     if (key === TODAY) cell.classList.add('today');
     if (key === state.picked) cell.classList.add('picked');
-    cell.setAttribute('aria-label',
-      `${label(key)}${holiday ? `, ${holiday}` : ''}, 일정 ${items.length}개`);
+    cell.setAttribute('aria-label', holiday
+      ? t('app.cellLabelHoliday', { day: label(key), holiday, count: items.length })
+      : t('app.cellLabel', { day: label(key), count: items.length }));
 
     const num = document.createElement('span');
     num.className = 'num';
@@ -504,7 +448,8 @@ function render() {
   const month = state.cursor.getMonth();
   const lbl = $('month-label');
   lbl.replaceChildren();
-  lbl.append(document.createTextNode(`${month + 1}월`));
+  lbl.append(document.createTextNode(
+    t('app.monthLabel', { month: i18n.dateFmt({ month: 'long' }).format(state.cursor) })));
   const yr = document.createElement('span');
   yr.className = 'yr';
   yr.textContent = year;
@@ -525,7 +470,9 @@ function renderDday() {
   const days = diffDays(state.settings.since, TODAY) + 1;
   const next = Math.ceil((days + 1) / 100) * 100;
   el.hidden = false;
-  el.textContent = `함께 ${days.toLocaleString()}일째 · ${next}일까지 ${next - days}일`;
+  el.textContent = t('app.dday', {
+    days: days.toLocaleString(i18n.getLocale()), next, left: next - days,
+  });
 }
 
 function renderUpcoming() {
@@ -537,7 +484,7 @@ function renderUpcoming() {
 
   const rows = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(0, 12);
   if (!rows.length) {
-    list.append(emptyState('앞으로 한 달 반은 비어 있어요.', '오른쪽 아래 + 로 하나 심어볼까요?', TODAY));
+    list.append(emptyState(t('upcoming.emptyTitle'), t('upcoming.emptyHint'), TODAY));
     return;
   }
 
@@ -599,7 +546,7 @@ function entryRow(date, item, showDate, photoNo) {
   const meta = document.createElement('div');
   meta.className = 'entry-meta';
   const bits = [];
-  if (item.milestone) bits.push('기념일');
+  if (item.milestone) bits.push(t('item.milestone'));
   else bits.push(nameOf(item.owner));
   if (item.time) bits.push(prettyTimeRange(item.time, item.endTime));
   if (item.part) bits.push(item.part);
@@ -613,11 +560,12 @@ function entryRow(date, item, showDate, photoNo) {
     const when = document.createElement('span');
     when.className = 'entry-when';
     const gap = diffDays(TODAY, date);
-    if (gap === 0) when.textContent = '오늘';
-    else if (gap === 1) when.textContent = '내일';
+    if (gap === 0) when.textContent = t('when.today');
+    else if (gap === 1) when.textContent = t('when.tomorrow');
     else {
       const d = parse(date);
-      when.innerHTML = `${d.getMonth() + 1}.${d.getDate()}<small>${gap}일 뒤</small>`;
+      when.innerHTML = `${d.getMonth() + 1}.${d.getDate()}`
+      + `<small>${t('when.inDays', { n: gap, count: gap })}</small>`;
     }
     button.append(when);
   }
@@ -639,13 +587,15 @@ function openSheet(date) {
   $('sheet-date').textContent = label(date, parse(date).getFullYear() !== new Date().getFullYear());
   const gap = diffDays(TODAY, date);
   const holiday = holidayOn(date);
-  const when = gap === 0 ? '오늘이에요' : gap > 0 ? `${gap}일 남았어요` : `${-gap}일 지났어요`;
+  const when = gap === 0 ? t('day.today')
+    : gap > 0 ? t('day.daysLeft', { n: gap, count: gap })
+      : t('day.daysAgo', { n: -gap, count: -gap });
   $('sheet-note').textContent = holiday ? `${holiday} · ${when}` : when;
 
   const list = $('sheet-list');
   list.replaceChildren();
   if (!items.length) {
-    list.append(emptyState('아무것도 없는 날', null, date));
+    list.append(emptyState(t('day.empty'), null, date));
   } else {
     const deal = photoDealer();
     items.forEach((item) => list.append(entryRow(date, item, false, deal(date, item))));
@@ -841,7 +791,7 @@ const timeUI = {
       clear.hidden = false;
       $('time-toggle').classList.add('on');
     } else {
-      text.textContent = '시간 없이 (하루 종일)';
+      text.textContent = t('editor.allDay');
       text.classList.add('placeholder');
       clear.hidden = true;
       $('time-toggle').classList.remove('on');
@@ -953,7 +903,9 @@ const datePicker = {
   renderMonth() {
     const y = this.view.getFullYear();
     const m = this.view.getMonth();
-    $('dp-title').textContent = `${y}년 ${m + 1}월`;
+    $('dp-title').textContent = t('datepick.title', {
+    year: y, month: i18n.dateFmt({ month: 'long' }).format(new Date(y, m, 1)),
+  });
 
     const first = new Date(y, m, 1);
     const gridStart = addDays(first, -first.getDay());
@@ -1027,11 +979,11 @@ function setDateLabel(inputId) {
   if (val) {
     const d = parse(val);
     const sameYear = d.getFullYear() === new Date().getFullYear();
-    text.textContent = `${sameYear ? '' : d.getFullYear() + '년 '}${d.getMonth() + 1}월 ${d.getDate()}일 (${WEEK[d.getDay()]})`;
+    text.textContent = label(value, !sameYear);
     text.classList.remove('placeholder');
     btn.classList.add('on');
   } else {
-    text.textContent = '날짜 고르기';
+    text.textContent = t('common.pickDate');
     text.classList.add('placeholder');
     btn.classList.remove('on');
   }
@@ -1072,7 +1024,7 @@ function bindDatePicker() {
 /* ── 일정 쓰기 ───────────────────────────── */
 function openEditor(event, date) {
   state.editing = event || null;
-  $('editor-title').textContent = event ? '일정 고치기' : '새 일정';
+  $('editor-title').textContent = t(event ? 'editor.edit' : 'editor.new');
   $('editor-error').textContent = '';
   $('f-title').value = event?.title || '';
   $('f-date').value = event?.date || date || state.picked || TODAY;
@@ -1112,8 +1064,8 @@ function renderRepeatNote() {
   note.hidden = !repeating;
   if (repeating) {
     note.textContent = state.editing.repeat === 'monthly'
-      ? '매달 돌아오는 일정이에요. 고치면 모든 달이 함께 바뀝니다.'
-      : '매년 돌아오는 일정이에요. 고치면 모든 해가 함께 바뀝니다.';
+      ? t('editor.repeatNoteMonthly')
+      : t('editor.repeatNoteYearly');
   }
 }
 
@@ -1122,13 +1074,13 @@ function renderRepeatNote() {
    "이름을 쓰라"고만 해놓고 그것만 고쳐 다시 저장했다가 또 막힙니다. */
 function checkEvent(payload) {
   const problems = [];
-  if (!payload.title) problems.push(['일정 이름을 적어주세요', $('f-title')]);
-  if (!payload.date) problems.push(['날짜를 골라주세요', $('f-date-btn')]);
+  if (!payload.title) problems.push([t('error.needTitle'), $('f-title')]);
+  if (!payload.date) problems.push([t('error.needDate'), $('f-date-btn')]);
   if (payload.endDate && payload.endDate < payload.date) {
-    problems.push(['끝나는 날이 시작하는 날보다 앞이에요', $('f-end-btn')]);
+    problems.push([t('error.endBeforeStart'), $('f-end-btn')]);
   }
   if (payload.endTime && payload.endTime <= payload.time) {
-    problems.push(['끝나는 시간이 시작 시간보다 늦어야 해요', $('time-toggle')]);
+    problems.push([t('error.endTimeBeforeStart'), $('time-toggle')]);
   }
   return problems;
 }
@@ -1175,7 +1127,7 @@ async function saveEvent(e) {
     state.events.push(draft);
   }
   $('editor').close();
-  toast(editing ? '고쳤어요' : '심었어요 🍒');
+  toast(t(editing ? 'toast.edited' : 'toast.saved'));
   if (state.picked) openSheet(state.picked); else render();
 
   try {
@@ -1188,7 +1140,7 @@ async function saveEvent(e) {
     rememberState({ events: state.events, settings: state.settings, photos: state.photos });
   } catch (err) {
     if (before) state.events = before; else state.events = state.events.filter((x) => x.id !== draft.id);
-    toast(err.message || '저장하지 못했어요');
+    toast(err.message || t('error.saveFailed'));
   }
   if (state.picked) openSheet(state.picked); else render();
 }
@@ -1196,15 +1148,15 @@ async function saveEvent(e) {
 async function deleteEvent() {
   if (!state.editing) return;
   const target = state.editing;
-  const every = target.repeat === 'monthly' ? '매달 돌아오는 일정이에요. 모든 달에서 '
-    : target.repeat === 'yearly' ? '매년 돌아오는 일정이에요. 모든 해에서 '
+  const every = target.repeat === 'monthly' ? t('ask.deleteEveryMonthly')
+    : target.repeat === 'yearly' ? t('ask.deleteEveryYearly')
     : '';
-  if (!await ask(`'${target.title}'\n${every}지울까요?`, '지울래요')) return;
+  if (!await ask(t('ask.delete', { title: target.title, every }), t('ask.deleteYes'))) return;
   // 만들기·고치기와 같은 이유로 먼저 지우고, 실패하면 도로 넣습니다
   const before = state.events.map((x) => x);
   state.events = state.events.filter((x) => x.id !== target.id);
   $('editor').close();
-  toast('지웠어요');
+  toast(t('toast.deleted'));
   if (state.picked) openSheet(state.picked); else render();
 
   try {
@@ -1213,7 +1165,7 @@ async function deleteEvent() {
     rememberState({ events: state.events, settings: state.settings, photos: state.photos });
   } catch (err) {
     state.events = before;
-    toast(err.message || '지우지 못했어요');
+    toast(err.message || t('error.deleteFailed'));
     if (state.picked) openSheet(state.picked); else render();
   }
 }
@@ -1249,7 +1201,42 @@ function fillSettings() {
   $('s-since').value = state.settings.since || '';
   setDateLabel('s-since');
   $('s-milestones').checked = !!state.settings.showMilestones;
+  renderLanguagePickers();
   renderPeople();
+}
+
+/* 언어와 공휴일 묶음. 둘 다 설정에 담기니 두 사람이 같은 것을 봅니다.
+   고를 수 있는 것은 public/i18n/ 과 public/holidays/ 에 실제로 실린 파일뿐이라,
+   언어팩이나 나라를 하나 넣으면 여기 목록에 저절로 나타납니다. */
+function renderLanguagePickers() {
+  const locale = $('s-locale');
+  locale.replaceChildren();
+  for (const tag of i18n.locales()) {
+    const opt = document.createElement('option');
+    opt.value = tag;
+    opt.textContent = i18n.LOCALE_NAMES[tag];   // 그 언어로 적힌 이름
+    locale.append(opt);
+  }
+  locale.value = i18n.getLocale();
+
+  const region = $('s-region');
+  region.replaceChildren();
+  for (const [code, set] of Object.entries(window.HOLIDAYS)) {
+    const opt = document.createElement('option');
+    opt.value = code;
+    opt.textContent = t(set.label);
+    region.append(opt);
+  }
+  region.value = window.HOLIDAYS[state.settings.region] ? state.settings.region : 'none';
+}
+
+/** 설정에 담긴 언어를 화면에 입힙니다. 바뀌었으면 true. */
+function applyLocale() {
+  const want = state.settings.locale || i18n.preferred();
+  if (want === i18n.getLocale()) return false;
+  i18n.setLocale(want);
+  refreshWeekNames();
+  return true;
 }
 
 /* 카드 두 장 — 이름 적는 칸과 "나예요"가 한 몸입니다. 이름은 둘이 나눠 쓰고
@@ -1288,11 +1275,11 @@ function openPhotos() {
 function renderPhotoNote() {
   const n = state.photos.length;
   $('s-photos-note').textContent = n
-    ? `${n} / ${MAX_PHOTOS}장`
-    : `아직 없어요. 최대 ${MAX_PHOTOS}장까지 넣을 수 있어요.`;
+    ? t('photos.count', { n, max: MAX_PHOTOS })
+    : t('photos.none', { max: MAX_PHOTOS });
   $('s-photos-count').textContent = n
-    ? `${n} / ${MAX_PHOTOS}장` + (n >= MAX_PHOTOS ? ' — 꽉 찼어요. 한 장 빼야 더 넣을 수 있어요' : '')
-    : '사진을 넣으면 일정 옆과 빈 날에 골고루 나옵니다.';
+    ? t('photos.count', { n, max: MAX_PHOTOS }) + (n >= MAX_PHOTOS ? t('photos.full') : '')
+    : t('photos.hint');
   $('s-photo-add').disabled = n >= MAX_PHOTOS;
 }
 
@@ -1311,7 +1298,7 @@ function renderPhotos() {
     del.type = 'button';
     del.className = 'photo-del';
     del.textContent = '×';
-    del.setAttribute('aria-label', '이 사진 빼기');
+    del.setAttribute('aria-label', t('photos.remove'));
     del.addEventListener('click', () => dropPhoto(id));
     cell.append(img, del);
     box.append(cell);
@@ -1336,10 +1323,10 @@ function shrink(file) {
       canvas.getContext('2d').drawImage(
         img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
       // webp를 못 만드는 브라우저는 png로 돌려주는데, 그것도 받아줍니다
-      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('사진을 줄이지 못했어요')),
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error(t('error.photoResize'))),
         'image/webp', 0.85);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('사진을 읽지 못했어요')); };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(t('error.photoRead'))); };
     img.src = url;
   });
 }
@@ -1347,13 +1334,13 @@ function shrink(file) {
 const asBase64 = (blob) => new Promise((resolve, reject) => {
   const reader = new FileReader();
   reader.onload = () => resolve(String(reader.result).split(',')[1]);
-  reader.onerror = () => reject(new Error('사진을 읽지 못했어요'));
+  reader.onerror = () => reject(new Error(t('error.photoRead')));
   reader.readAsDataURL(blob);
 });
 
 async function addPhotos(files) {
   const room = MAX_PHOTOS - state.photos.length;
-  if (room <= 0) { toast(`사진은 ${MAX_PHOTOS}장까지만 넣을 수 있어요`); return; }
+  if (room <= 0) { toast(t('toast.photoLimit', { max: MAX_PHOTOS })); return; }
   const picked = files.slice(0, room);
 
   await once($('s-photo-add'), async () => {
@@ -1369,8 +1356,8 @@ async function addPhotos(files) {
         added += 1;
       }
       afterPhotoChange(picked.length < files.length
-        ? `${MAX_PHOTOS}장이 꽉 차서 ${added}장만 넣었어요`
-        : added > 1 ? `${added}장 넣었어요 🍒` : '넣었어요 🍒');
+        ? t('toast.photosPartial', { max: MAX_PHOTOS, n: added })
+        : added > 1 ? t('toast.photosAdded', { n: added, count: added }) : t('toast.photoAdded'));
     } catch (err) {
       // 여러 장 중에 실패한 게 있어도, 들어간 것까지는 화면에 반영합니다
       refreshPhotos();
@@ -1382,16 +1369,16 @@ async function addPhotos(files) {
 }
 
 async function dropPhoto(id) {
-  if (!await ask('이 사진을 뺄까요?', '뺄래요')) return;
+  if (!await ask(t('ask.removePhoto'), t('ask.removePhotoYes'))) return;
   // 일정·설정과 같은 이유로 먼저 빼고, 실패하면 도로 넣습니다
   const before = state.photos;
   state.photos = state.photos.filter((x) => x !== id);
-  afterPhotoChange('뺐어요');
+  afterPhotoChange(t('toast.photoRemoved'));
   try {
     await api.call('DELETE', `/api/photos/${id}`);
   } catch (err) {
     state.photos = before;
-    afterPhotoChange(err.message || '빼지 못했어요');
+    afterPhotoChange(err.message || t('error.photoRemove'));
   }
 }
 
@@ -1458,10 +1445,10 @@ async function syncPush() {
 
 /** 알림을 켤 수 없는 이유 한 줄. 켤 수 있으면 null. */
 function pushBlocker() {
-  if (!pushable()) return '이 브라우저는 알림을 지원하지 않아요.';
-  if (safariTab()) return '공유 버튼 → "홈 화면에 추가"로 열면 알림을 켤 수 있어요.';
-  if (state.me !== 'a' && state.me !== 'b') return '위에서 "지금 나는"을 먼저 골라주세요.';
-  if (Notification.permission === 'denied') return '알림을 막아두셨어요. 폰 설정에서 이 앱의 알림을 켜주세요.';
+  if (!pushable()) return t('push.unsupported');
+  if (safariTab()) return t('push.safariTab');
+  if (state.me !== 'a' && state.me !== 'b') return t('push.pickMe');
+  if (Notification.permission === 'denied') return t('push.denied');
   return null;
 }
 
@@ -1470,18 +1457,18 @@ function renderPush() {
   const note = $('s-push-note');
   const blocked = pushBlocker();
 
-  button.textContent = pushSub ? '알림 끄기' : '알림 받기';
+  button.textContent = t(pushSub ? 'push.turnOff' : 'push.allow');
   button.disabled = !!blocked;
   note.textContent = blocked || (pushSub
-    ? '상대가 일정을 바꾸면 이 기기로 알림이 와요.'
-    : '한 번 켜두면, 상대가 일정을 바꿀 때마다 이 기기로 알려드려요.');
+    ? t('push.onNote')
+    : t('push.offNote'));
 }
 
 /** 권한을 받고 이 기기를 서버에 등록합니다. 설정과 사용법 양쪽에서 부릅니다. */
 async function subscribePush(me) {
   // 권한은 누른 직후에 물어야 합니다 — 뜸을 들이면 브라우저가 무시해요
   if (await Notification.requestPermission() !== 'granted') {
-    toast('알림을 허용해 주셔야 보낼 수 있어요');
+    toast(t('push.needPermission'));
     return;
   }
   const { publicKey } = await api.call('GET', '/api/push');
@@ -1492,7 +1479,7 @@ async function subscribePush(me) {
   });
   await api.call('POST', '/api/push', { owner: me, subscription: sub.toJSON() });
   pushSub = sub;
-  toast('알림을 켰어요');
+  toast(t('push.turnedOn'));
 }
 
 async function togglePush() {
@@ -1507,12 +1494,12 @@ async function togglePush() {
         await pushSub.unsubscribe().catch(() => {}); // 브라우저 쪽이 실패해도 서버는 지웁니다
         await api.call('DELETE', `/api/push?endpoint=${encodeURIComponent(endpoint)}`);
         pushSub = null;
-        toast('알림을 껐어요');
+        toast(t('push.turnedOff'));
         return;
       }
       await subscribePush(me);
     } catch (err) {
-      toast(err.message || '알림을 켜지 못했어요');
+      toast(err.message || t('error.pushFailed'));
     }
   });
   renderPush();
@@ -1550,11 +1537,11 @@ async function sendSettings() {
     // 보낸 칸만 서버가 다듬은 값으로 맞춥니다. 테마는 따로 담기니 그대로 둬요.
     for (const key of Object.keys(sending)) state.settings[key] = saved[key];
     // 이름이 안 돌아왔으면 조용히 넘기지 않습니다 (DB에 앱 이름 칸이 아직 없을 때)
-    if (sending.title && saved.title !== sending.title) toast('앱 이름만 저장하지 못했어요');
+    if (sending.title && saved.title !== sending.title) toast(t('error.titleOnlyFailed'));
   } catch (err) {
     for (const key of Object.keys(sending)) state.settings[key] = back[key];
     fillSettings();
-    toast(err.message || '저장하지 못했어요');
+    toast(err.message || t('error.saveFailed'));
   }
   renderTitle();
   render();
@@ -1572,11 +1559,18 @@ function saveNames(wait) {
 
 /* 색만 바뀝니다. 기기마다 따로 기억해요 — 상대 화면까지 바꿔버리면
    자기 폰을 자기가 못 고르니까요. */
-const THEMES = ['복숭아', '바다', '숲', '살구', '밤'];
+const THEMES = ['peach', 'ocean', 'forest', 'apricot', 'night'];
+
+/* 예전 판은 테마를 한국어 이름으로 담았습니다. 그 값이 든 설정과 기기 기록도
+   맞게 읽어서, 쓰던 사람이 색을 잃지 않게 합니다. */
+const THEME_ALIASES = {
+  '복숭아': 'peach', '바다': 'ocean', '숲': 'forest', '살구': 'apricot', '밤': 'night',
+};
 
 /* 색만 칠합니다. 어디에 기억할지는 부르는 쪽이 정해요. */
 function paintTheme(name) {
-  const theme = THEMES.includes(name) ? name : THEMES[0];
+  const id = THEME_ALIASES[name] || name;
+  const theme = THEMES.includes(id) ? id : THEMES[0];
   document.documentElement.dataset.theme = theme;
   // 폰 위아래 띠 색도 바탕에 맞춥니다
   const paper = getComputedStyle(document.documentElement).getPropertyValue('--paper').trim();
@@ -1619,7 +1613,7 @@ function pickTheme(name) {
       // 조용히 두면 다음에 설정을 열 때 옛 색이 돌아와 있어 놀랍니다
       state.settings.theme = back;
       restoreTheme();
-      toast('색을 저장하지 못했어요');
+      toast(t('error.themeSave'));
     }
   }, 600);
 }
@@ -1637,8 +1631,8 @@ function renderThemes() {
   const box = $('s-theme');
   const now = document.documentElement.dataset.theme || THEMES[0];
   $('s-theme-note').textContent = $('s-theme-share').checked
-    ? '둘 다 같은 색으로 보입니다.'
-    : '이 기기에서만 바뀝니다. 상대 화면은 그대로예요.';
+    ? t('settings.themeSharedNote')
+    : t('settings.themeLocalNote');
   box.replaceChildren();
 
   THEMES.forEach((name) => {
@@ -1657,7 +1651,7 @@ function renderThemes() {
 
     const label = document.createElement('span');
     label.className = 'sw-name';
-    label.textContent = name;
+    label.textContent = t('theme.' + name);
 
     swatch.append(paper, label);
     swatch.addEventListener('click', () => pickTheme(name));
@@ -1700,7 +1694,7 @@ function maybeGuide() {
    그래서 마지막 버튼이 그 자리에서 알림을 켭니다. */
 function renderGuideCta() {
   const canTurnOn = !pushBlocker() && !pushSub;
-  $('guide-cta').textContent = canTurnOn ? '알림 켜고 시작하기' : '알겠어요';
+  $('guide-cta').textContent = t(canTurnOn ? 'guide.ctaPush' : 'guide.ctaOk');
 }
 
 async function guideCta() {
@@ -1711,7 +1705,7 @@ async function guideCta() {
     try {
       await subscribePush(me);
     } catch (err) {
-      toast(err.message || '알림을 켜지 못했어요');
+      toast(err.message || t('error.pushFailed'));
     }
   });
   renderPush();
@@ -1742,6 +1736,7 @@ function applyState(data) {
   state.events = data.events || [];
   state.settings = data.settings || state.settings;
   state.photos = data.photos || [];
+  applyLocale();   // 서버가 정한 언어. 화면 글자는 여기서 다시 칠해집니다
   refreshPhotos();
   renderTitle();
   restoreTheme();
@@ -1820,7 +1815,7 @@ $('gate-form').addEventListener('submit', async (e) => {
   const button = e.target.querySelector('button');
   const original = button.textContent;
   button.disabled = true;
-  button.textContent = '여는 중…';
+  button.textContent = t('gate.opening');
   try {
     const res = await fetch('/api/login', {
       method: 'POST',
@@ -1834,7 +1829,7 @@ $('gate-form').addEventListener('submit', async (e) => {
     $('gate-password').value = '';
     await load();
   } catch (err) {
-    $('gate-error').textContent = err.message || '들어가지 못했어요';
+    $('gate-error').textContent = err.message || t('gate.failed');
   } finally {
     button.disabled = false;
     button.textContent = original;
@@ -1975,9 +1970,24 @@ Object.entries(typed).forEach(([id, save]) => {
 ['s-name-a', 's-name-b'].forEach((id) => $(id).addEventListener('blur', () => {
   if ($(id).value.trim()) return;
   fillSettings();
-  toast('이름은 비워둘 수 없어요');
+  toast(t('error.nameEmpty'));
 }));
 $('s-milestones').addEventListener('change', () => saveSetting({ showMilestones: $('s-milestones').checked }, 0));
+$('s-locale').addEventListener('change', () => {
+  const tag = i18n.setLocale($('s-locale').value);
+  refreshWeekNames();
+  saveSetting({ locale: tag }, 0);
+  // 새 언어로 다시 그려야 하는 것들 — 나머지는 data-i18n이 알아서 바뀝니다
+  renderLanguagePickers();
+  renderThemes();
+  renderPush();
+  renderPhotoNote();
+  render();
+});
+$('s-region').addEventListener('change', () => {
+  saveSetting({ region: $('s-region').value }, 0);
+  render();
+});
 $('s-people').addEventListener('click', (e) => {
   // 글자 칸을 눌렀으면 이름만 고치는 겁니다
   if (e.target.tagName === 'INPUT') return;
@@ -1989,7 +1999,7 @@ $('s-people').addEventListener('click', (e) => {
 $('settings').addEventListener('close', sendSettings);
 $('settings-close').addEventListener('click', sendSettings);
 $('s-logout').addEventListener('click', async () => {
-  if (!await ask('나가면 비밀번호를 다시 넣어야 해요.\n로그아웃할까요?', '나갈래요')) return;
+  if (!await ask(t('ask.logout'), t('ask.logoutYes'))) return;
   $('settings').close();
   signOut();
 });
@@ -2079,7 +2089,12 @@ let pendingState = null;
 
 /* 시작 */
 (async () => {
-  paintTheme(localStorage.getItem('diary_theme') || '복숭아');
+  /* 서버에 묻기 전이라 브라우저 언어(또는 지난번 고른 것)로 먼저 씁니다.
+     로그인해서 설정을 받으면 applyState가 그쪽으로 맞춥니다. */
+  i18n.setLocale(i18n.preferred());
+  refreshWeekNames();
+
+  paintTheme(localStorage.getItem('diary_theme') || 'peach');
 
   // 인트로가 도는 1초를 그냥 흘려보내지 않고 미리 받아옵니다
   if (api.token) {

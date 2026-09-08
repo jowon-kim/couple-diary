@@ -18,13 +18,13 @@ export default guard(async (req, res) => {
 
   if (req.method === 'DELETE') {
     const endpoint = String(req.query.endpoint || '');
-    if (!endpoint) throw new ValidationError('어느 기기인지 알 수 없어요');
+    if (!endpoint) throw new ValidationError('error.noDevice');
     await removePushSub(endpoint);
     return res.status(204).end();
   }
 
   const { owner, subscription } = body(req);
-  if (!['a', 'b'].includes(owner)) throw new ValidationError('누구인지 먼저 골라주세요');
+  if (!['a', 'b'].includes(owner)) throw new ValidationError('error.pickWhoFirst');
 
   const endpoint = subscription?.endpoint;
   const { p256dh, auth } = subscription?.keys || {};
@@ -34,7 +34,7 @@ export default guard(async (req, res) => {
     endpoint.length <= ENDPOINT_LIMIT &&
     typeof p256dh === 'string' && p256dh &&
     typeof auth === 'string' && auth;
-  if (!ok) throw new ValidationError('알림을 켜지 못했어요');
+  if (!ok) throw new ValidationError('error.pushFailed');
 
   await savePushSub(owner, { endpoint, p256dh, auth });
   res.status(201).json({ ok: true });
