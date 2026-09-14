@@ -7,17 +7,21 @@ import fs from 'node:fs';
 import { useClient } from './lib/db.js';
 
 process.env.DIARY_PASSWORD = 'testpw';
-process.env.DIARY_SECRET = 'testsecret';
 process.env.DIARY_URL = 'https://diary.test';
+process.env.DATABASE_URL = 'postgres://pglite.test'; // 실제로 붙지는 않습니다 — 아래 useClient가 가로챕니다
 
+/* 표를 미리 만들지 않습니다. Deploy 버튼으로 막 만든 DB처럼 텅 빈 채로 시작해서,
+   첫 로그인이 표와 열쇠를 만드는지 봅니다. */
 const pg = new PGlite();
-await pg.exec(fs.readFileSync('./schema.sql', 'utf8'));
 
 // 태그드 템플릿 -> $1, $2 ... 로 바꿔서 PGlite에 넘깁니다.
-useClient((strings, ...values) => {
+const client = (strings, ...values) => {
   const text = strings.reduce((acc, s, i) => acc + s + (i < values.length ? `$${i + 1}` : ''), '');
   return pg.query(text, values).then((r) => r.rows);
-});
+};
+let statementsRun = 0;
+client.query = (text) => { statementsRun++; return pg.query(text).then((r) => r.rows); };
+useClient(client);
 
 const { default: login } = await import('./api/login.js');
 const { default: state } = await import('./api/state.js');
@@ -47,13 +51,69 @@ const ok = (label, cond, extra = '') => {
   console.log(`${cond ? 'PASS' : 'FAIL'}  ${label}${extra ? '  ' + extra : ''}`);
 };
 
+const { keys, forgetKeys } = await import('./lib/setup.js');
+const tables = async () =>
+  (await pg.query(`select table_name from information_schema.tables where table_schema = 'public' order by 1`))
+    .rows.map((row) => row.table_name).join();
+const meta = async () =>
+  Object.fromEntries((await pg.query('select name, value from app_meta order by name')).rows.map((row) => [row.name, row.value]));
+
 /* ── 인증 ── */
 let r = await call(login, { method: 'POST', body: { password: 'nope' } });
 ok('wrong password rejected', r.status === 401);
 
 r = await call(login, { method: 'POST', body: { password: 'testpw' } });
-const token = r.body.token;
+let token = r.body.token;
 ok('login returns token', r.status === 200 && typeof token === 'string' && token.length === 64);
+
+/* ── 처음 켜질 때 — 설치하는 사람이 표도 열쇠도 만들지 않습니다 ── */
+ok('the first sign-in creates the tables',
+  (await tables()) === 'app_meta,events,photos,push_subs,reminders_sent,settings', await tables());
+const first = await meta();
+ok('it makes a sign-in secret and a clock key',
+  /^[0-9a-f]{48}$/.test(first.diary_secret) && /^[0-9a-f]{48}$/.test(first.cron_secret) && first.diary_secret !== first.cron_secret);
+const firstVapid = JSON.parse(first.vapid);
+ok('it makes a VAPID pair of the right shape',
+  /^[A-Za-z0-9_-]{87}$/.test(firstVapid.publicKey) && /^[A-Za-z0-9_-]{43}$/.test(firstVapid.privateKey));
+
+/* 서버 인스턴스가 새로 떠도 (배포, 콜드 스타트) 같은 열쇠를 써야 합니다 —
+   바뀌면 둘 다 로그아웃되고 켜둔 알림이 전부 죽습니다 */
+forgetKeys();
+statementsRun = 0;
+r = await call(login, { method: 'POST', body: { password: 'testpw' } });
+ok('a fresh instance keeps the same token', r.body.token === token);
+ok('and does not run the schema again', statementsRun === 0, String(statementsRun));
+ok('and does not replace any key', JSON.stringify(await meta()) === JSON.stringify(first));
+
+/* schema.sql이 바뀌면(새 컬럼 등) 다음 인스턴스가 다시 돌립니다. 열쇠는 그대로. */
+await pg.query(`update app_meta set value = 'old' where name = 'schema'`);
+forgetKeys();
+r = await call(login, { method: 'POST', body: { password: 'testpw' } });
+ok('a changed schema.sql is applied again', statementsRun > 0 && (await meta()).schema !== 'old');
+ok('without touching the keys', r.body.token === token && (await meta()).vapid === first.vapid);
+
+/* 두 인스턴스가 동시에 처음 뜨면 둘 다 열쇠를 만들려 합니다. 한쪽 것만 남아야 해요. */
+await pg.query(`delete from app_meta where name in ('diary_secret', 'cron_secret', 'vapid')`);
+forgetKeys();
+const racing = await Promise.all([keys(), (forgetKeys(), keys())]);
+ok('two instances racing agree on one set of keys',
+  JSON.stringify(racing[0]) === JSON.stringify(racing[1]) && racing[0].vapidPublic === JSON.parse((await meta()).vapid).publicKey);
+/* 위에서 열쇠를 갈았으니, 뒤의 테스트가 쓸 토큰을 새로 받습니다 */
+r = await call(login, { method: 'POST', body: { password: 'testpw' } });
+const oldToken = token;
+ok('a replaced secret signs everyone out', r.body.token !== oldToken);
+token = r.body.token;
+
+/* Deploy 화면에서 Neon을 건너뛰면 — 무엇이 빠졌는지 말해줍니다 */
+{
+  const saved = process.env.DATABASE_URL;
+  delete process.env.DATABASE_URL;
+  r = await call(login, { method: 'POST', body: { password: 'testpw' } });
+  ok('no database says so', r.status === 500 && r.body.error === 'error.noDatabase', JSON.stringify(r.body));
+  r = await call(state, { token });
+  ok('and so does every other call', r.status === 500 && r.body.error === 'error.noDatabase');
+  process.env.DATABASE_URL = saved;
+}
 
 r = await call(state);
 ok('no token blocked', r.status === 401);
@@ -344,9 +404,6 @@ ok('photos cleared for the next test', r.body.photos.length === 0);
 
 
 /* ── 휴대폰 알림 (웹푸시) ── */
-process.env.VAPID_PUBLIC_KEY = 'test-public-key';
-process.env.VAPID_PRIVATE_KEY = 'test-private-key';
-
 const { default: pushApi } = await import('./api/push/index.js');
 const { useSender } = await import('./lib/push.js');
 
@@ -376,7 +433,7 @@ r = await call(pushApi, { method: 'PATCH', token });
 ok('push wrong method 405', r.status === 405);
 
 r = await call(pushApi, { method: 'GET', token });
-ok('push hands out the public key', r.body.publicKey === 'test-public-key');
+ok('push hands out the public key it made', r.body.publicKey === (await keys()).vapidPublic && r.body.publicKey.length === 87);
 
 r = await call(pushApi, { method: 'POST', token, body: { owner: '해커', subscription: device(PHONE) } });
 ok('push bad owner 400', r.status === 400, r.body?.error);
@@ -474,11 +531,17 @@ ok('subject complains when nothing is set',
 
 
 /* ── 오늘 일정 알림 (바깥 시계가 두드립니다) ── */
-process.env.CRON_SECRET = 'testcron';
 const { default: cron } = await import('./api/cron.js');
 
+/* 열쇠는 앱이 만들었고, 두 사람은 설정 화면에서 봅니다 */
+r = await call(settings, { method: 'GET' });
+ok('the clock key needs a token', r.status === 401);
+r = await call(settings, { method: 'GET', token });
+const CRON = r.body.cronKey;
+ok('settings hands the clock key to the two of them', CRON === (await keys()).cronSecret, JSON.stringify(r.body));
+
 const DAY = '2026-10-05';
-const knock = (at, key = 'testcron') => call(cron, { method: 'GET', query: { key, at } });
+const knock = (at, key = CRON) => call(cron, { method: 'GET', query: { key, at } });
 const tick = (hhmm) => knock(`${DAY}T${hhmm}`);
 
 r = await call(cron, { method: 'GET' });
@@ -487,7 +550,7 @@ ok('cron needs the key', r.status === 401);
 r = await call(cron, { method: 'GET', query: { key: 'wrong' } });
 ok('cron rejects a wrong key', r.status === 401);
 
-r = await call(cron, { method: 'DELETE', query: { key: 'testcron' } });
+r = await call(cron, { method: 'DELETE', query: { key: CRON } });
 ok('cron wrong method 405', r.status === 405);
 
 /* 시간대는 설정에 담깁니다 — 아무 값이나 담기면 알림이 엉뚱한 시각에 갑니다 */

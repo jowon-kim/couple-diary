@@ -2,6 +2,9 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "outputDirectory": "public",
   "installCommand": "npm install --omit=dev",
+  "functions": {
+    "api/**/*.js": { "includeFiles": "schema.sql" }
+  },
   "headers": [
     {
       "source": "/api/:path((?!photos/).*)",

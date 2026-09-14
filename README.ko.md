@@ -19,7 +19,7 @@
 ### 터미널을 써본 적이 없다면
 
 [**단계별 가이드**](docs/GUIDE.md)(영어)를 따라 하세요. 전부 브라우저에서 합니다 —
-Deploy 버튼 하나, 복사·붙여넣기 몇 번, 20분쯤.
+Deploy 버튼 하나와 비밀번호 하나, 5분쯤. 키와 표는 앱이 처음 켜질 때 알아서 만듭니다.
 
 ### AI에게 맡기기 (제일 쉬움)
 
@@ -44,25 +44,16 @@ npm install
 npx vercel login
 npx vercel link --yes
 npx vercel integration add neon        # DATABASE_URL이 들어갑니다
+npx vercel env add DIARY_PASSWORD production   # 둘이 공유할 비밀번호. 길게 잡으세요
 
-node -e "console.log(require('web-push').generateVAPIDKeys())"
-```
-
-환경변수 넷을 넣습니다 (`npx vercel env add <이름> production`).
-
-| 이름 | 값 |
-|---|---|
-| `DIARY_PASSWORD` | 둘이 공유할 비밀번호. **길게 잡으세요** |
-| `DIARY_SECRET` | 아무 긴 무작위 문자열 |
-| `VAPID_PUBLIC_KEY` | 위에서 만든 공개키 |
-| `VAPID_PRIVATE_KEY` | 위에서 만든 비밀키 |
-
-```bash
 npx vercel env pull .env.local
-npm run schema                         # 표를 만듭니다
 npm run verify                         # ✓가 전부 뜨는지 확인
 npx vercel deploy --prod
 ```
+
+환경변수는 이것 하나입니다. 로그인 토큰용 비밀값, 알림용 VAPID 키, 아침 알림 시계의
+열쇠는 앱이 첫 요청 때 만들어 DB에 둡니다(`lib/setup.js`). 표도 같은 때 만들어요.
+누가 로그인하기 전에 표를 만들어 두고 싶으면 `npm run schema`도 그대로 됩니다.
 
 `npm run verify`가 ✗를 내면 고치는 명령을 같이 알려줍니다.
 
@@ -147,8 +138,8 @@ public/holidays/kr.js     대한민국. 음력 명절과 대체공휴일까지
 api/      서버리스 함수 (얇은 핸들러)
 lib/      store.js에 SQL 전부 · push.js가 알림
 public/   화면. 빌드 없이 그대로 서빙됩니다
-schema.sql  표 다섯 개
-test.mjs    핸들러 통합 테스트 145개
+schema.sql  표 여섯 개 — 앱이 처음 켜질 때 스스로 돌립니다
+test.mjs    핸들러 통합 테스트 159개
 ```
 
 ```bash

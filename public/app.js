@@ -1188,9 +1188,24 @@ function openSettings() {
   showSettingsTab('basic');
   fillSettings();
   renderPush();
+  renderCron();
   restoreTheme();
   renderPhotoNote();
   $('settings').showModal();
+}
+
+/* 오늘 일정 알림을 위해 바깥 시계에 넣을 주소. 열쇠는 앱이 처음 켜질 때 스스로
+   만든 것이라(lib/setup.js) 서버에 물어봐야 합니다 — 한 번 받으면 기억해 둡니다. */
+let cronUrl = '';
+
+async function renderCron() {
+  $('s-cron').value = cronUrl;
+  if (cronUrl) return;
+  try {
+    const { cronKey } = await api.call('GET', '/api/settings');
+    cronUrl = `${location.origin}/api/cron?key=${cronKey}`;
+    $('s-cron').value = cronUrl;
+  } catch { /* 인터넷이 끊겼으면 비워 둡니다. 다음에 열 때 다시 물어봐요 */ }
 }
 
 /* 서버 값을 칸에 다시 적습니다. 열 때도 쓰고, 저장이 실패해 되돌릴 때도 씁니다. */
@@ -1868,7 +1883,7 @@ $('gate-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ password: $('gate-password').value }),
     });
     const info = await res.json();
-    if (!res.ok) throw new Error(info.error);
+    if (!res.ok) throw new Error(info.error ? t(info.error) : t('gate.failed')); // 서버는 문구가 아니라 키를 돌려줍니다
     api.token = info.token;
     localStorage.setItem('diary_token', info.token);
     $('gate-password').value = '';
@@ -2052,6 +2067,7 @@ $('s-logout').addEventListener('click', async () => {
   signOut();
 });
 $('s-push').addEventListener('click', togglePush);
+$('s-cron').addEventListener('focus', (e) => e.target.select()); // 누르면 통째로 골라져서 복사하기 쉽게
 $('guide-open').addEventListener('click', () => openGuide('use'));
 $('guide-tab-setup').addEventListener('click', () => showGuideTab('setup'));
 $('guide-tab-use').addEventListener('click', () => showGuideTab('use'));

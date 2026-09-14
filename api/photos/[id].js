@@ -10,7 +10,7 @@ export default guard(async (req, res) => {
   if (!UUID.test(String(id || ''))) return res.status(404).json({ error: 'error.noSuchPhoto' });
 
   if (req.method === 'DELETE') {
-    if (!requireAuth(req, res)) return;
+    if (!(await requireAuth(req, res))) return;
     const gone = await removePhoto(id);
     if (!gone) return res.status(404).json({ error: 'error.noSuchPhoto' });
     return res.status(204).end();

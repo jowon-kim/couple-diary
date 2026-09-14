@@ -19,7 +19,7 @@ KakaoTalk, no Slack, no third party — this app sends the push itself.
   plain object in one file
 - Add to home screen and it opens like an app (PWA)
 
-Roughly 5,400 lines across `api/`, `lib/` and `public/`, with 145 integration
+Roughly 5,400 lines across `api/`, `lib/` and `public/`, with 159 integration
 tests that run against an in-memory Postgres.
 
 ## Install
@@ -27,7 +27,8 @@ tests that run against an in-memory Postgres.
 ### Never used a terminal?
 
 Follow [**the step-by-step guide**](docs/GUIDE.md). It's all in the browser —
-one Deploy button, a few copy-and-pastes, about 20 minutes.
+one Deploy button and one password, about 5 minutes. The app makes its own keys
+and tables the first time it runs.
 
 ### Let an agent do it (easiest)
 
@@ -52,25 +53,17 @@ npm install
 npx vercel login
 npx vercel link --yes
 npx vercel integration add neon        # this sets DATABASE_URL
+npx vercel env add DIARY_PASSWORD production   # the password the two of you share. Make it long
 
-node -e "console.log(require('web-push').generateVAPIDKeys())"
-```
-
-Set four environment variables (`npx vercel env add <NAME> production`):
-
-| Name | Value |
-|---|---|
-| `DIARY_PASSWORD` | the password the two of you share. **Make it long** |
-| `DIARY_SECRET` | any long random string |
-| `VAPID_PUBLIC_KEY` | the public key printed above |
-| `VAPID_PRIVATE_KEY` | the private key printed above |
-
-```bash
 npx vercel env pull .env.local
-npm run schema                         # creates the tables
 npm run verify                         # every line should be a ✓
 npx vercel deploy --prod
 ```
+
+That is the only environment variable. The sign-in secret, the VAPID keys for
+push and the key for the morning clock are made by the app on its first request
+and kept in the database (`lib/setup.js`), and the tables are created the same
+way. `npm run schema` still works if you want the tables before anyone signs in.
 
 When `npm run verify` prints a ✗ it also prints the command that fixes it.
 
@@ -91,7 +84,7 @@ Events also announce themselves on the day itself: **30 minutes before** anythin
 starting before 8am, and **one summary at 8am** for the rest. Both of you get
 these. They need one more piece of setup — something outside has to knock on
 `/api/cron` on a schedule, because Vercel's free cron only runs once a day with
-an hour of slack. [`AGENTS.md`](AGENTS.md#reminders-on-the-day) walks through it,
+an hour of slack. The address to give it is in **Settings → Reminders on the day**. [`AGENTS.md`](AGENTS.md#reminders-on-the-day) walks through it,
 and an agent can do the whole thing for you.
 
 The time zone that decides "today" and "8am" lives in settings. The app fills it
@@ -181,8 +174,8 @@ lib/                store.js holds every SQL statement · push.js sends notifica
 public/             the UI. served as-is, no build
 public/i18n/        language packs
 public/holidays/    holiday sets, one file per country
-schema.sql          five tables
-test.mjs            145 integration tests against the real handlers
+schema.sql          six tables — the app runs it itself on first start
+test.mjs            159 integration tests against the real handlers
 ```
 
 ```bash
@@ -196,7 +189,7 @@ Holiday sets and language packs are the most useful things you can send — both
 are a single self-contained file. See the two sections above.
 
 ```bash
-npm test        # 145 handler tests, no accounts needed
+npm test        # 159 handler tests, no accounts needed
 npm run i18n    # how complete each language pack is
 ```
 

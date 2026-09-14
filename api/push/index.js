@@ -12,9 +12,9 @@ const ENDPOINT_LIMIT = 500; // 실제로는 300자 안팎입니다 — 터무니
 export default guard(async (req, res) => {
   const allowed = ['GET', 'POST', 'DELETE'];
   if (!allowed.includes(req.method)) return methodNotAllowed(res, allowed);
-  if (!requireAuth(req, res)) return;
+  if (!(await requireAuth(req, res))) return;
 
-  if (req.method === 'GET') return res.status(200).json({ publicKey: publicKey() });
+  if (req.method === 'GET') return res.status(200).json({ publicKey: await publicKey() });
 
   if (req.method === 'DELETE') {
     const endpoint = String(req.query.endpoint || '');

@@ -1,4 +1,4 @@
--- 달력 스키마. Neon SQL Editor에 그대로 붙여넣고 실행하세요.
+-- 달력 스키마. 앱이 처음 켜질 때 스스로 돌립니다 (lib/setup.js). Neon SQL Editor에 붙여넣어 돌려도 됩니다.
 
 create table if not exists events (
   id          uuid primary key default gen_random_uuid(),
@@ -86,4 +86,13 @@ create index if not exists push_subs_owner_idx on push_subs (owner);
 create table if not exists reminders_sent (
   key     text primary key,
   sent_at timestamptz not null default now()
+);
+
+-- 앱이 처음 켜질 때 스스로 만드는 열쇠들과, 표를 마지막으로 맞춘 schema.sql의 지문.
+-- 설치하는 사람이 키를 만들어 붙여넣지 않아도 되게 여기 둡니다 (lib/setup.js).
+-- **줄을 지우지 마세요.** vapid_*가 바뀌면 켜둔 알림이 전부 죽고,
+-- diary_secret이 바뀌면 둘 다 로그아웃됩니다.
+create table if not exists app_meta (
+  name  text primary key,
+  value text not null
 );

@@ -7,7 +7,7 @@ const MAX_PHOTOS = 30;        // 무료 한도를 갉아먹지 않게 (public/ap
 
 export default guard(async (req, res) => {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
-  if (!requireAuth(req, res)) return;
+  if (!(await requireAuth(req, res))) return;
 
   const { mime, data } = body(req);
   if (!ALLOWED.includes(mime)) throw new ValidationError('error.imageOnly');

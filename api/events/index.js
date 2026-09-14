@@ -4,7 +4,7 @@ import { notify } from '../../lib/push.js';
 
 export default guard(async (req, res) => {
   if (req.method !== 'POST') return methodNotAllowed(res, ['POST']);
-  if (!requireAuth(req, res)) return;
+  if (!(await requireAuth(req, res))) return;
 
   const input = body(req);
   const event = await insertEvent(normalizeEvent(input));

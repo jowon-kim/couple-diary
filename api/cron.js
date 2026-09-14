@@ -1,7 +1,7 @@
 /**
  * 오늘 일정 알림. 바깥 시계가 새벽 4시부터 5분마다 두드립니다.
  *
- *   GET /api/cron?key=<CRON_SECRET>
+ *   GET /api/cron?key=<열쇠>     열쇠는 로그인한 뒤 설정 화면에 주소째로 나옵니다
  *
  * 무엇을 언제 보낼지는 lib/remind.js가 정합니다. 여기서는 두드린 시각을 보고
  * 그 규칙을 돌린 뒤, 이미 보낸 건 건너뛰고 남은 것만 보냅니다.
@@ -27,7 +27,7 @@ function pretend(at) {
 export default guard(async (req, res) => {
   const allowed = ['GET', 'POST'];
   if (!allowed.includes(req.method)) return methodNotAllowed(res, allowed);
-  if (!requireCron(req, res)) return;
+  if (!(await requireCron(req, res))) return;
 
   /* 시간대가 설정에 있어서, 지금이 몇 시인지 알려면 DB를 한 번 읽어야 합니다.
      앵두어리처럼 시간대를 코드에 박아뒀다면 이 왕복이 없었을 텐데, 쓰는 사람이
