@@ -188,7 +188,7 @@ skipped so a server waking up does not dump yesterday's reminders at once.
 
 | Command | What | If it fails |
 |---|---|---|
-| `npm test` | 159 handler tests against an in-memory Postgres, using the real handlers | If you changed code, it has to pass |
+| `npm test` | 163 handler tests against an in-memory Postgres, using the real handlers, then `screen-test.mjs`, which runs `public/app.js` against a stub DOM | If you changed code, it has to pass |
 | `npm run verify` | environment variables, database, tables | Each ✗ prints the fix. Exits 1 |
 | `npm run i18n` | how complete each language pack is | A missing key falls back to English rather than breaking |
 

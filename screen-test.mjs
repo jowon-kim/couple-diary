@@ -1,0 +1,204 @@
+/**
+ * Tests for the screen itself (public/app.js).
+ *
+ *   npm test
+ *
+ * The handler tests never load app.js, so a typo in it once shipped with every
+ * test green: the + button threw before the editor could open, and nobody
+ * could add an event. This loads the real scripts in the order index.html does
+ * and presses the things people press first.
+ *
+ * Like i18n-test.mjs it stubs the browser rather than pulling in a headless
+ * one. Elements are made on demand by id, so the stub only has to be as smart
+ * as the code paths below need. It cannot tell whether things look right —
+ * that still needs a real browser.
+ */
+import { readFileSync } from 'node:fs';
+import vm from 'node:vm';
+
+/* ── 아주 작은 가짜 DOM ── */
+class Text {
+  constructor(data) { this.textContent = String(data); }
+}
+
+class El {
+  constructor(tag = 'div') {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.dataset = {};
+    this.style = {};
+    this.attrs = {};
+    this.listeners = {};
+    this.value = '';
+    this.checked = false;
+    this.disabled = false;
+    this.hidden = false;
+    this.open = false;
+    this.innerHTML = '';
+    this.parentElement = null;
+    this.offsetTop = this.offsetHeight = this.offsetWidth = this.clientHeight = this.scrollTop = 0;
+    this.own = '';
+    const names = new Set();
+    this.classList = {
+      add: (...c) => c.forEach((x) => names.add(x)),
+      remove: (...c) => c.forEach((x) => names.delete(x)),
+      toggle: (c, on = !names.has(c)) => { on ? names.add(c) : names.delete(c); return on; },
+      contains: (c) => names.has(c),
+    };
+  }
+
+  get textContent() { return this.children.length ? this.children.map((c) => c.textContent).join('') : this.own; }
+  set textContent(v) { this.children = []; this.own = String(v); }
+
+  append(...nodes) {
+    for (const n of nodes) {
+      const node = typeof n === 'string' ? new Text(n) : n;
+      if (node.fragment) { node.children.forEach((c) => this.append(c)); node.children = []; continue; }
+      node.parentElement = this;
+      this.children.push(node);
+    }
+  }
+  replaceChildren(...nodes) { this.children = []; this.own = ''; this.append(...nodes); }
+  remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter((c) => c !== this); }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k] ?? null; }
+  addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+  removeEventListener(type, fn) { this.listeners[type] = (this.listeners[type] || []).filter((f) => f !== fn); }
+  dispatchEvent(event) {
+    event.target ??= this;
+    event.preventDefault ??= () => {};
+    event.stopPropagation ??= () => {};
+    (this.listeners[event.type] || []).forEach((fn) => fn(event));
+    this['on' + event.type]?.(event);
+    return true;
+  }
+  click() { this.dispatchEvent({ type: 'click' }); }
+  showModal() { this.open = true; }
+  close() { if (!this.open) return; this.open = false; this.dispatchEvent({ type: 'close' }); }
+  querySelectorAll() { return []; }
+  querySelector() { return null; }
+  closest() { return null; }
+  cloneNode() { return new El(this.tagName); }
+  getBoundingClientRect() { return { width: 400, height: 0, top: 0, left: 0 }; }
+  focus() {}
+  select() {}
+  scrollIntoView() {}
+  scrollTo() {}
+  setPointerCapture() {}
+}
+
+const byId = new Map();
+const bySelector = new Map();
+const document = new El('html');
+Object.assign(document, {
+  documentElement: new El('html'),
+  hidden: false,
+  title: '',
+  getElementById: (id) => {
+    if (!byId.has(id)) { const el = new El(); el.id = id; byId.set(id, el); }
+    return byId.get(id);
+  },
+  querySelector: (selector) => {
+    if (!bySelector.has(selector)) bySelector.set(selector, new El());
+    return bySelector.get(selector);
+  },
+  createElement: (tag) => new El(tag),
+  createTextNode: (data) => new Text(data),
+  createDocumentFragment: () => Object.assign(new El(), { fragment: true }),
+});
+
+const store = new Map();
+const fetches = [];
+
+Object.assign(globalThis, {
+  window: globalThis,
+  document,
+  localStorage: {
+    getItem: (k) => (store.has(k) ? store.get(k) : null),
+    setItem: (k, v) => store.set(k, String(v)),
+    removeItem: (k) => store.delete(k),
+  },
+  addEventListener: () => {},
+  location: { origin: 'https://diary.test' },
+  matchMedia: () => ({ matches: false }),
+  getComputedStyle: () => ({ getPropertyValue: () => '' }),
+  requestAnimationFrame: () => 0,
+  setInterval: () => 0,   // 2분마다 맞추는 타이머가 테스트를 붙잡지 않게
+  fetch: async (url, init = {}) => {
+    fetches.push({ url, method: init.method, body: init.body });
+    const body = init.body ? JSON.parse(init.body) : {};
+    return { ok: true, status: 200, json: async () => ({ cronKey: 'k', ...body }) };
+  },
+});
+// Node 24 ships its own navigator, and it is read-only.
+Object.defineProperty(globalThis, 'navigator', {
+  value: { languages: ['ko-KR', 'ko'], language: 'ko-KR', userAgent: 'test' }, configurable: true,
+});
+
+/* index.html과 같은 순서로, 같은 전역에 싣습니다 */
+for (const file of ['i18n/index.js', 'i18n/en.js', 'i18n/ko.js', 'holidays/none.js', 'holidays/kr.js', 'app.js']) {
+  vm.runInThisContext(readFileSync(`public/${file}`, 'utf8'), { filename: file });
+}
+const run = (code) => vm.runInThisContext(code);
+const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+let passed = 0;
+let failed = 0;
+const ok = (what, cond, saw) => {
+  if (cond) { passed++; console.log(`PASS  ${what}`); }
+  else { failed++; console.log(`FAIL  ${what}  ${JSON.stringify(saw)}`); }
+};
+const attempt = (code) => {
+  try { run(code); return null; } catch (e) { return e.message; }
+};
+
+const year = new Date().getFullYear();
+ok('the screen starts in the browser language', run('i18n.getLocale()') === 'ko', run('i18n.getLocale()'));
+
+/* 일정 쓰기 — + 버튼과 "이 날에 일정 추가"가 부르는 곳 */
+let error = attempt(`openEditor(null, '${year}-09-20')`);
+ok('the + button opens the editor', !error && $('editor').open, error);
+ok('with the date written out', $('f-date-text').textContent.includes('9월 20일'), $('f-date-text').textContent);
+
+/* 날짜 고르기 */
+error = attempt(`datePicker.open('f-date')`);
+ok('the date picker opens', !error && $('datepick').open, error);
+ok('its title does not say the month twice', $('dp-title').textContent === `${year}년 9월`, $('dp-title').textContent);
+error = attempt(`datePicker.pick('${year}-09-30')`);
+ok('picking a day closes the picker', !error && !$('datepick').open, error);
+ok('and puts the day in', $('f-date').value === `${year}-09-30` && $('f-date-text').textContent.includes('9월 30일'),
+  [$('f-date').value, $('f-date-text').textContent]);
+run(`$('editor').close()`);
+
+/* 달력 머리 */
+run(`state.cursor = new Date(${year}, 8, 1); render()`);
+ok('the month label does not say the month twice', $('month-label').children[0]?.textContent === '9월',
+  $('month-label').children[0]?.textContent);
+
+/* 설정 — 처음 만난 날을 넣은 뒤에도 열려야 합니다 */
+run(`state.settings.since = '2025-05-18'`);
+error = attempt('openSettings()');
+ok('settings open once the day you met is set', !error && $('settings').open, error);
+ok('and show that day', $('s-since-text').textContent.includes('2025년 5월 18일'), $('s-since-text').textContent);
+run(`$('settings').close()`);
+await sleep(20);
+
+/* 언어 — 아무도 안 고른 달력은 처음 연 기기의 언어로 채웁니다 */
+fetches.length = 0;
+run(`applyState({ events: [], photos: [], settings: { ...state.settings, locale: '' } })`);
+await sleep(20);
+const savedLocale = () => fetches.filter((f) => f.method === 'PATCH' && f.body && 'locale' in JSON.parse(f.body));
+ok('an unpicked language stays the browser one', run('i18n.getLocale()') === 'ko', run('i18n.getLocale()'));
+ok('and is saved so notifications speak it too',
+  run('state.settings.locale') === 'ko' && savedLocale().length === 1 && JSON.parse(savedLocale()[0].body).locale === 'ko',
+  fetches);
+
+fetches.length = 0;
+run(`applyState({ events: [], photos: [], settings: { ...state.settings, locale: 'en' } })`);
+await sleep(20);
+ok('a language someone picked wins over the browser', run('i18n.getLocale()') === 'en', run('i18n.getLocale()'));
+ok('and is left alone', savedLocale().length === 0, fetches);
+
+console.log(`\n${passed} passed, ${failed} failed`);
+process.exit(failed ? 1 : 0);

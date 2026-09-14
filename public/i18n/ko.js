@@ -40,7 +40,7 @@ globalThis.I18N.ko = {
   'app.dday': '함께 {days}일째 · {next}일까지 {left}일',
   'app.cellLabel': '{day}, 일정 {count}개',
   'app.cellLabelHoliday': '{day}, {holiday}, 일정 {count}개',
-  'app.monthLabel': '{month}월',
+  'app.monthLabel': '{month}',
   'upcoming.emptyTitle': '앞으로 한 달 반은 비어 있어요.',
   'upcoming.emptyHint': '오른쪽 아래 + 로 하나 심어볼까요?',
   'day.empty': '아무것도 없는 날',
@@ -95,7 +95,7 @@ globalThis.I18N.ko = {
 
   /* ── 날짜 고르기 ── */
   'datepick.changeMonth': '연·월 바꾸기',
-  'datepick.title': '{year}년 {month}월',
+  'datepick.title': '{year}년 {month}',
 
   /* ── 설정 ── */
   'settings.title': '설정',
