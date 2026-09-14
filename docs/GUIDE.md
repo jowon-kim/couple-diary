@@ -70,14 +70,19 @@ them once, in your browser.
 > `allow pasting` first. That is a normal safety warning — type what it asks,
 > press `Enter`, then paste again.
 
-You get four lines like this (yours will be different):
+You get four lines shaped like this, each with a long random value in place of
+the dots:
 
 ```
-DIARY_SECRET       56043c76d496c3d1c972cc817c6aedb75f199962104ee2d2
-CRON_SECRET        a01a28e8bee7b8263d69f48973062f935cdedbd10a4b5bb0
-VAPID_PUBLIC_KEY   BLpAtGPB89rVjhZ9F_bltcnElKtjXLr84rjXXGlUMVX9oKpobknffO912eY_I1vbt6_yzWBLDoOw9ti1zSryE_A
-VAPID_PRIVATE_KEY  7tWOJkMI3yPmlxzwsAAp6Eo1M5Hv7EGAFpsTfLleMpY
+DIARY_SECRET       ················ (48 characters)
+CRON_SECRET        ················ (48 characters)
+VAPID_PUBLIC_KEY   ················ (87 characters)
+VAPID_PRIVATE_KEY  ················ (43 characters)
 ```
+
+**Use the values from your own console, never ones you find written down
+anywhere else** — including this page. Anyone who knows your keys can get past
+them.
 
 **Copy all four lines into a note and keep it private.** The code runs only in
 your own tab; nothing is sent anywhere. Do not make new keys later — see
@@ -180,7 +185,7 @@ on its door every few minutes in the early morning.
 3. **URL** — your address, then `/api/cron?key=`, then your `CRON_SECRET` value:
 
    ```
-   https://couple-diary-abc.vercel.app/api/cron?key=a01a28e8bee7b8263d69f48973062f935cdedbd10a4b5bb0
+   https://couple-diary-abc.vercel.app/api/cron?key=YOUR-CRON_SECRET-VALUE
    ```
 
 4. **Schedule** — choose the custom/advanced option and set:
