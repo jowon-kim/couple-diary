@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "node test.mjs && node i18n-test.mjs",
+    "test": "node test.mjs && node i18n-test.mjs && node screen-test.mjs",
     "schema": "node schema.mjs",
     "verify": "node verify.mjs",
     "i18n": "node i18n-check.mjs"

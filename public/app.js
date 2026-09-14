@@ -980,7 +980,7 @@ function setDateLabel(inputId) {
   if (val) {
     const d = parse(val);
     const sameYear = d.getFullYear() === new Date().getFullYear();
-    text.textContent = label(value, !sameYear);
+    text.textContent = label(val, !sameYear);
     text.classList.remove('placeholder');
     btn.classList.add('on');
   } else {
@@ -1287,6 +1287,16 @@ function seedTimezone() {
   const mine = browserZone();
   if (mine === 'UTC' || mine === state.settings.timezone) return;
   saveSetting({ timezone: mine }, 0);
+}
+
+/**
+ * 언어를 한 번도 안 고른 달력이면, 처음 연 사람의 브라우저 언어로 채워둡니다.
+ * 비워두면 화면은 브라우저 언어로 뜨지만 알림은 서버가 보내서 영어로 갑니다.
+ * 고른 적이 있으면 건드리지 않습니다 — 시간대와 같은 이유입니다.
+ */
+function seedLocale() {
+  if (state.settings.locale) return;
+  saveSetting({ locale: i18n.getLocale() }, 0);
 }
 
 /** 설정에 담긴 언어를 화면에 입힙니다. 바뀌었으면 true. */
@@ -1796,6 +1806,7 @@ function applyState(data) {
   state.settings = data.settings || state.settings;
   state.photos = data.photos || [];
   applyLocale();   // 서버가 정한 언어. 화면 글자는 여기서 다시 칠해집니다
+  seedLocale();    // 아직 아무도 안 고른 언어는 이 기기 것으로 채워둡니다
   seedTimezone();  // 아직 아무도 안 고른 시간대는 이 기기 것으로 채워둡니다
   refreshPhotos();
   renderTitle();

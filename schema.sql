@@ -26,7 +26,7 @@ create table if not exists settings (
   title           text not null default '',
   subtitle        text not null default '',
   theme           text not null default 'peach',
-  locale          text not null default 'en',
+  locale          text not null default '',
   timezone        text not null default 'UTC',
   region          text not null default 'none',
   name_a          text not null default '',
@@ -41,8 +41,21 @@ alter table settings add column if not exists subtitle text not null default '';
 alter table settings add column if not exists theme text not null default 'peach';
 
 -- 언어와 공휴일 묶음. 둘 다 두 사람이 같은 것을 봅니다.
-alter table settings add column if not exists locale text not null default 'en';
+alter table settings add column if not exists locale text not null default '';
 alter table settings add column if not exists region text not null default 'none';
+
+-- 언어가 비어 있으면 "아직 아무도 안 골랐다"는 뜻이라, 처음 연 사람의 브라우저 언어로 채워집니다.
+-- 예전 판은 기본값이 'en'이라 한국어 폰에서도 로그인하자마자 영어가 됐습니다.
+-- 그때 들어간 'en'을 한 번만 비웁니다. 컬럼 기본값이 아직 'en'인 DB에서만 돌고,
+-- 바로 아래 줄이 기본값을 바꾸므로 다시 돌려도 아무 일도 없습니다.
+update settings set locale = ''
+where locale = 'en'
+  and exists (
+    select 1 from information_schema.columns
+    where table_schema = current_schema() and table_name = 'settings'
+      and column_name = 'locale' and column_default like '''en''%'
+  );
+alter table settings alter column locale set default '';
 
 -- 오늘 일정 알림이 쓰는 시간대. "오늘"과 "아침 8시"가 어디 기준인지 정합니다.
 alter table settings add column if not exists timezone text not null default 'UTC';

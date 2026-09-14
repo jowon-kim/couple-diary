@@ -271,7 +271,7 @@ await call(settings, { method: 'PATCH', token, body: { subtitle: '우리 오늘 
 
 /* 언어와 공휴일 묶음도 둘이 같이 씁니다 */
 r = await call(settings, { method: 'PATCH', token });
-ok('language defaults to English', r.body.locale === 'en', r.body.locale);
+ok('language starts unpicked, so the screen uses the browser language', r.body.locale === '', r.body.locale);
 ok('no holiday set by default', r.body.region === 'none', r.body.region);
 
 r = await call(settings, { method: 'PATCH', token, body: { locale: 'ko', region: 'kr' } });
@@ -286,6 +286,38 @@ ok('changing another setting keeps the language', r.body.locale === 'ko', r.body
 
 r = await call(settings, { method: 'PATCH', token, body: { locale: '' } });
 ok('a blank language falls back to English', r.body.locale === 'en', r.body.locale);
+
+/* 예전 판은 기본값이 'en'이라 한국어 폰도 로그인하자마자 영어가 됐습니다.
+   그 DB는 다음 배포 때 한 번만 비워지고, 그 뒤에 고른 영어는 그대로 남아야 합니다. */
+{
+  const rerunSchema = async () => {
+    await pg.query(`update app_meta set value = 'old' where name = 'schema'`);
+    forgetKeys();
+    await call(login, { method: 'POST', body: { password: 'testpw' } });
+  };
+  const localeDefault = async () => (await pg.query(
+    `select column_default from information_schema.columns where table_name = 'settings' and column_name = 'locale'`,
+  )).rows[0].column_default;
+
+  await pg.query(`alter table settings alter column locale set default 'en'`);
+  await pg.query(`update settings set locale = 'en'`);
+  await rerunSchema();
+  r = await call(state, { token });
+  ok('an old database forgets the English it never chose', r.body.settings.locale === '', r.body.settings.locale);
+  ok('and its default is blank from now on', (await localeDefault()) === "''::text", await localeDefault());
+
+  await call(settings, { method: 'PATCH', token, body: { locale: 'en' } });
+  await rerunSchema();
+  r = await call(state, { token });
+  ok('English picked afterwards survives the next schema change', r.body.settings.locale === 'en', r.body.settings.locale);
+
+  await pg.query(`alter table settings alter column locale set default 'en'`);
+  await pg.query(`update settings set locale = 'ko'`);
+  await rerunSchema();
+  r = await call(state, { token });
+  ok('an old database keeps a language someone did pick', r.body.settings.locale === 'ko', r.body.settings.locale);
+  await call(settings, { method: 'PATCH', token, body: { locale: 'en' } });
+}
 
 r = await call(state, { token });
 ok('state carries the title', r.body.settings.title === r.body.settings.title && r.body.settings.title.length === 12);

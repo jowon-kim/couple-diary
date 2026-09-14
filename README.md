@@ -19,7 +19,7 @@ KakaoTalk, no Slack, no third party — this app sends the push itself.
   plain object in one file
 - Add to home screen and it opens like an app (PWA)
 
-Roughly 5,400 lines across `api/`, `lib/` and `public/`, with 159 integration
+Roughly 5,400 lines across `api/`, `lib/` and `public/`, with 163 integration
 tests that run against an in-memory Postgres.
 
 ## Install
@@ -175,7 +175,8 @@ public/             the UI. served as-is, no build
 public/i18n/        language packs
 public/holidays/    holiday sets, one file per country
 schema.sql          six tables — the app runs it itself on first start
-test.mjs            159 integration tests against the real handlers
+test.mjs            163 integration tests against the real handlers
+screen-test.mjs     opens the editor, date picker and settings in public/app.js
 ```
 
 ```bash
@@ -189,7 +190,7 @@ Holiday sets and language packs are the most useful things you can send — both
 are a single self-contained file. See the two sections above.
 
 ```bash
-npm test        # 159 handler tests, no accounts needed
+npm test        # 163 handler tests plus the screen, no accounts needed
 npm run i18n    # how complete each language pack is
 ```
 

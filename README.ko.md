@@ -139,7 +139,8 @@ api/      서버리스 함수 (얇은 핸들러)
 lib/      store.js에 SQL 전부 · push.js가 알림
 public/   화면. 빌드 없이 그대로 서빙됩니다
 schema.sql  표 여섯 개 — 앱이 처음 켜질 때 스스로 돌립니다
-test.mjs    핸들러 통합 테스트 159개
+test.mjs    핸들러 통합 테스트 163개
+screen-test.mjs  public/app.js의 일정 창·날짜 고르기·설정을 실제로 엽니다
 ```
 
 ```bash
