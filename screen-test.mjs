@@ -26,7 +26,7 @@ class El {
     this.tagName = tag.toUpperCase();
     this.children = [];
     this.dataset = {};
-    this.style = {};
+    this.style = { setProperty(k, v) { this[k] = String(v); } };
     this.attrs = {};
     this.listeners = {};
     this.value = '';
@@ -39,6 +39,10 @@ class El {
     this.offsetTop = this.offsetHeight = this.offsetWidth = this.clientHeight = this.scrollTop = 0;
     this.own = '';
     const names = new Set();
+    Object.defineProperty(this, 'className', {
+      get: () => [...names].join(' '),
+      set: (v) => { names.clear(); String(v).split(/\s+/).filter(Boolean).forEach((x) => names.add(x)); },
+    });
     this.classList = {
       add: (...c) => c.forEach((x) => names.add(x)),
       remove: (...c) => c.forEach((x) => names.delete(x)),
@@ -199,6 +203,45 @@ run(`applyState({ events: [], photos: [], settings: { ...state.settings, locale:
 await sleep(20);
 ok('a language someone picked wins over the browser', run('i18n.getLocale()') === 'en', run('i18n.getLocale()'));
 ok('and is left alone', savedLocale().length === 0, fetches);
+
+/* 여러 날 일정 — 열하루짜리 하나가 달력과 목록을 도배하지 않게 */
+{
+  const day = (n) => run(`ymd(addDays(parse(TODAY), ${n}))`);
+  const kids = (el, cls) => el.children.filter((c) => c.classList?.contains(cls));
+  const trip = { id: 'trip', title: '오점뭐', date: day(1), endDate: day(11), time: null, endTime: null, memo: '', owner: 'both', repeat: 'none' };
+  const lunch = { id: 'lunch', title: '점심', date: day(3), endDate: null, time: '12:00', endTime: null, memo: '', owner: 'a', repeat: 'none' };
+  globalThis.__events = [trip, lunch];
+  run(`state.events = __events; state.settings.since = null; state.cursor = new Date(parse('${day(1)}').getFullYear(), parse('${day(1)}').getMonth(), 1); render()`);
+
+  const rows = $('upcoming-list').children.map((li) => li.children[0].children[1]);
+  const tripRows = rows.filter((body) => body.children[0].textContent === '오점뭐');
+  ok('coming up lists a multi-day event once', tripRows.length === 1 && rows.length === 2, rows.map((b) => b.textContent));
+  const dotted = (s) => `${Number(s.slice(5, 7))}.${Number(s.slice(8, 10))}`;
+  const range = `${dotted(day(1))} ~ ${dotted(day(11))}`;
+  ok('with the days it runs', tripRows[0]?.children[1].textContent.includes(range), tripRows[0]?.children[1].textContent);
+
+  const cells = $('grid').children.filter((c) => c.dataset.date >= trip.date && c.dataset.date <= trip.endDate);
+  const bars = cells.map((c) => kids(kids(c, 'spans')[0] || { children: [] }, 'bar')[0]);
+  ok('every day it covers gets a piece of one band', cells.length > 0 && bars.every((b) => b && b.classList.contains('both')), cells.length);
+  ok('and no dot of its own', cells.every((c) => kids(kids(c, 'branch')[0], 'cherry-dot').length === 0 || c.dataset.date === lunch.date));
+  ok('the band has ends where it starts and stops',
+    !!bars[0]?.classList.contains('from') && (cells.at(-1).dataset.date !== trip.endDate || !!bars.at(-1)?.classList.contains('to')));
+  const labels = bars.filter((b) => kids(b, 'bar-label').length);
+  const weeks = new Set(cells.map((c) => Math.floor($('grid').children.indexOf(c) / 7))).size;
+  ok('its title shows once a week, not once a day', labels.length === weeks && labels[0].children[0].textContent === '오점뭐',
+    [labels.length, weeks]);
+  ok('the single-day event still gets its dot',
+    kids(kids($('grid').children.find((c) => c.dataset.date === lunch.date), 'branch')[0], 'cherry-dot').length === 1);
+
+  /* 겹치면 줄을 나누고, 두 줄을 넘으면 +n으로 */
+  const overlap = (id, owner) => ({ ...trip, id, owner, title: id });
+  globalThis.__events = [trip, overlap('second', 'a'), overlap('third', 'b')];
+  run('state.events = __events; render()');
+  const first = $('grid').children.find((c) => c.dataset.date === trip.date);
+  const lanes = kids(kids(first, 'spans')[0], 'bar');
+  ok('overlapping bands take separate lanes', lanes.length === 2 && lanes[0].className !== lanes[1].className, lanes.map((b) => b.className));
+  ok('and the one that does not fit is counted', kids(kids(first, 'branch')[0], 'more')[0]?.textContent === '+1');
+}
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);

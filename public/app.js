@@ -8,6 +8,7 @@ const ymd = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate(
 const parse = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); };
 const addDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
 const diffDays = (a, b) => Math.round((parse(b) - parse(a)) / 86400000);
+const shortDate = (s) => { const d = parse(s); return `${d.getMonth() + 1}.${d.getDate()}`; }; // "9.15"
 const TODAY = ymd(new Date());
 
 /* 기본 아이콘 (owner별 색은 부모 클래스가 배경으로) */
@@ -320,6 +321,9 @@ function expand(from, to) {
           time: span > 0 ? null : event.time,
           endTime: span > 0 ? null : event.endTime,
           part: span > 0 ? t('item.part', { i: i + 1, total: span + 1 }) : null,
+          // 여러 날 일정이 이번에 시작하고 끝나는 날 — 달력 띠와 목록 한 줄이 씁니다
+          start: span > 0 ? ymd(s) : null,
+          end: span > 0 ? ymd(addDays(s, span)) : null,
           sortKey: (span > 0 || !event.time) ? '00:00' : event.time,
         });
       }
@@ -371,6 +375,63 @@ function holidayOn(dateStr) {
 }
 
 /* ── 달력 그리기 ─────────────────────────── */
+
+/* 여러 날 일정은 칸마다 점을 찍지 않고 칸을 이어 띠로 그립니다. 열하루짜리가
+   점 열한 개가 되면 달력이 그걸로 도배됩니다. 한 칸에 띠는 이만큼까지 쌓고,
+   넘치는 것은 +n에 셉니다. */
+const SPAN_LANES = 2;
+const spanKey = (item) => `${item.event.id}|${item.start}`;
+
+/**
+ * 띠마다 몇 번째 줄에 놓일지. 먼저 시작하는 것, 같이 시작하면 긴 것부터 비어 있는
+ * 가장 윗줄을 잡습니다. 한 번 잡은 줄은 끝날 때까지 그대로라 띠가 꺾이지 않아요.
+ */
+function spanLanes(map) {
+  const spans = new Map();
+  for (const list of map.values()) {
+    for (const item of list) if (item.start && !spans.has(spanKey(item))) spans.set(spanKey(item), item);
+  }
+  const taken = new Map();
+  const lanes = new Map();
+  [...spans.values()]
+    .sort((x, y) => x.start.localeCompare(y.start) || y.end.localeCompare(x.end))
+    .forEach((item) => {
+      const days = [...map.keys()].filter((d) => d >= item.start && d <= item.end);
+      let lane = 0;
+      while (days.some((d) => taken.get(d)?.has(lane))) lane++;
+      days.forEach((d) => { if (!taken.has(d)) taken.set(d, new Set()); taken.get(d).add(lane); });
+      lanes.set(spanKey(item), lane);
+    });
+  return lanes;
+}
+
+/* 한 칸의 띠 조각들. 같은 주의 칸은 모두 같은 줄 수를 그려야 띠 높이가 맞습니다. */
+function spanBars(date, key, items, lanes, rowLanes) {
+  const box = document.createElement('span');
+  box.className = 'spans';
+  const byLane = [];
+  items.forEach((item) => { byLane[lanes.get(spanKey(item))] = item; });
+
+  for (let lane = 0; lane < rowLanes; lane++) {
+    const bar = document.createElement('span');
+    const item = byLane[lane];
+    if (!item) { bar.className = 'bar vacant'; box.append(bar); continue; }
+    bar.className = `bar ${item.owner}`;
+    if (key === item.start) bar.classList.add('from');
+    if (key === item.end) bar.classList.add('to');
+    // 제목은 시작하는 칸과, 주가 바뀌어 새 줄이 시작되는 칸에만 답니다
+    if (key === item.start || date.getDay() === 0) {
+      const text = document.createElement('span');
+      text.className = 'bar-label';
+      text.textContent = item.title;
+      text.style.setProperty('--run', Math.min(diffDays(key, item.end), 6 - date.getDay()) + 1);
+      bar.append(text);
+    }
+    box.append(bar);
+  }
+  return box;
+}
+
 function buildMonthCells(year, monthIndex) {
   const first = new Date(year, monthIndex, 1);
   const month = first.getMonth(); // monthIndex가 -1이나 12처럼 범위를 벗어나도 정규화됨
@@ -380,12 +441,24 @@ function buildMonthCells(year, monthIndex) {
   const gridEnd = addDays(gridStart, cells - 1);
 
   const map = expand(ymd(gridStart), ymd(gridEnd));
+  const lanes = spanLanes(map);
   const frag = document.createDocumentFragment();
+
+  // 주마다 띠가 몇 줄 필요한지
+  const weekLanes = [];
+  for (let i = 0; i < cells; i++) {
+    const week = Math.floor(i / 7);
+    for (const item of map.get(ymd(addDays(gridStart, i))) || []) {
+      if (item.start) weekLanes[week] = Math.max(weekLanes[week] || 0, Math.min(lanes.get(spanKey(item)) + 1, SPAN_LANES));
+    }
+  }
 
   for (let i = 0; i < cells; i++) {
     const date = addDays(gridStart, i);
     const key = ymd(date);
     const items = map.get(key) || [];
+    const spanning = items.filter((item) => item.start);
+    const dotted = items.filter((item) => !item.start);
 
     const holiday = holidayOn(key);
 
@@ -415,21 +488,23 @@ function buildMonthCells(year, monthIndex) {
       cell.append(name);
     }
 
+    if (spanning.length) cell.append(spanBars(date, key, spanning, lanes, weekLanes[Math.floor(i / 7)]));
+
     const branch = document.createElement('span');
     branch.className = 'branch';
-    if (items.length) {
-      items.slice(0, 3).forEach((item, index) => {
-        const dot = document.createElement('span');
-        dot.className = `cherry-dot ${item.milestone ? 'milestone' : item.owner}`;
-        dot.style.animationDelay = `${index * 50}ms`;
-        branch.append(dot);
-      });
-      if (items.length > 3) {
-        const more = document.createElement('span');
-        more.className = 'more';
-        more.textContent = `+${items.length - 3}`;
-        branch.append(more);
-      }
+    const hidden = Math.max(0, dotted.length - 3)
+      + spanning.filter((item) => lanes.get(spanKey(item)) >= SPAN_LANES).length;
+    dotted.slice(0, 3).forEach((item, index) => {
+      const dot = document.createElement('span');
+      dot.className = `cherry-dot ${item.milestone ? 'milestone' : item.owner}`;
+      dot.style.animationDelay = `${index * 50}ms`;
+      branch.append(dot);
+    });
+    if (hidden) {
+      const more = document.createElement('span');
+      more.className = 'more';
+      more.textContent = `+${hidden}`;
+      branch.append(more);
     }
     cell.append(branch);
 
@@ -483,7 +558,19 @@ function renderUpcoming() {
   const list = $('upcoming-list');
   list.replaceChildren();
 
-  const rows = [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(0, 12);
+  /* 여러 날 일정은 처음 보이는 날에 한 줄만 — 날마다 한 줄씩이면 열하루짜리 하나가
+     목록을 다 차지해서 다른 일정이 밀려납니다. 이미 시작했으면 오늘 줄에 섭니다. */
+  const listed = new Set();
+  const rows = [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, items]) => [date, items.filter((item) => {
+      if (!item.start) return true;
+      if (listed.has(spanKey(item))) return false;
+      listed.add(spanKey(item));
+      return true;
+    })])
+    .filter(([, items]) => items.length)
+    .slice(0, 12);
   if (!rows.length) {
     list.append(emptyState(t('upcoming.emptyTitle'), t('upcoming.emptyHint'), TODAY));
     return;
@@ -550,7 +637,9 @@ function entryRow(date, item, showDate, photoNo) {
   if (item.milestone) bits.push(t('item.milestone'));
   else bits.push(nameOf(item.owner));
   if (item.time) bits.push(prettyTimeRange(item.time, item.endTime));
-  if (item.part) bits.push(item.part);
+  // 목록에서는 한 줄로 합쳐 기간을, 하루 보기에서는 그날이 며칠째인지를 적습니다
+  if (item.start && showDate) bits.push(`${shortDate(item.start)} ~ ${shortDate(item.end)}`);
+  else if (item.part) bits.push(item.part);
   if (item.event?.memo) bits.push(item.event.memo.split('\n')[0].slice(0, 20));
   meta.textContent = bits.join(' · ');
   body.append(title, meta);
@@ -564,8 +653,7 @@ function entryRow(date, item, showDate, photoNo) {
     if (gap === 0) when.textContent = t('when.today');
     else if (gap === 1) when.textContent = t('when.tomorrow');
     else {
-      const d = parse(date);
-      when.innerHTML = `${d.getMonth() + 1}.${d.getDate()}`
+      when.innerHTML = shortDate(date)
       + `<small>${t('when.inDays', { n: gap, count: gap })}</small>`;
     }
     button.append(when);

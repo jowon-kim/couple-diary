@@ -673,6 +673,47 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .day.picked { background: var(--wash-a); }
 .day.picked .num { box-shadow: inset 0 0 0 2px var(--cherry); }
 
+/* 여러 날 일정의 띠. 칸 안쪽 여백과 칸 사이 틈을 덮어 옆 칸 조각과 이어 붙입니다.
+   가지와 함께 칸 밑에 붙어서, 공휴일 이름이 붙은 칸이 섞여도 한 줄로 이어집니다 */
+.day .spans {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: auto -2px 0;
+}
+.day .spans + .branch { margin-top: 0; }
+.day .bar {
+  position: relative;
+  height: 13px;
+  margin-right: -1px;
+}
+.day .bar.a { background: color-mix(in srgb, var(--cherry) 55%, transparent); }
+.day .bar.b { background: color-mix(in srgb, var(--plum) 55%, transparent); }
+.day .bar.both { background: color-mix(in srgb, var(--leaf) 55%, transparent); }
+.day .bar.from { margin-left: 3px; border-radius: 7px 0 0 7px; }
+.day .bar.to { margin-right: 3px; border-radius: 0 7px 7px 0; }
+.day .bar.from.to { border-radius: 7px; }
+/* 제목은 한 칸에 담기지 않아서 그 주에 이어지는 칸 수(--run)만큼 옆으로 뻗습니다.
+   뒤 칸의 띠가 글자를 덮지 않게 위로 올립니다 */
+.day .bar-label {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  left: 4px;
+  width: calc(var(--run) * 100% - 8px);
+  font-family: var(--body);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 13px;
+  color: var(--ink);
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+}
+
 /* 가지에 매달린 열매 */
 .branch {
   position: relative;
