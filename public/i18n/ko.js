@@ -105,6 +105,8 @@ globalThis.I18N.ko = {
   'settings.language': '언어',
   'settings.holidays': '공휴일',
   'settings.holidaysNote': '고른 나라의 공휴일이 달력에 뜹니다.',
+  'settings.timezone': '시간대',
+  'settings.timezoneNote': "'오늘'이 언제 시작하는지, 아침 요약이 몇 시에 갈지를 정합니다.",
   'settings.appName': '앱 이름',
   'settings.appNameNote': '첫 화면과 상단 바에 나옵니다.',
   'settings.greeting': '인사말',
@@ -158,6 +160,9 @@ globalThis.I18N.ko = {
   'push.newEvent': '새 일정',
   'push.editedEvent': '일정 고침',
   'push.deletedEvent': '일정 지움',
+  'push.soon': '곧 시작',
+  'push.today.other': '오늘 일정 {count}개',
+  'push.allDay': '종일',
   'push.turnedOn': '알림을 켰어요',
   'push.turnedOff': '알림을 껐어요',
 

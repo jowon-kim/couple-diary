@@ -238,6 +238,7 @@ const state = {
     theme: 'peach',
     locale: '',       // 서버가 알려주기 전에는 브라우저 언어를 씁니다
     region: 'none',   // 공휴일 묶음 (public/holidays/)
+    timezone: '',     // 오늘 일정 알림의 기준. 비어 있으면 브라우저 것을 씁니다
     names: { a: '', b: '' },
     since: null,
     showMilestones: true,
@@ -1228,6 +1229,49 @@ function renderLanguagePickers() {
     region.append(opt);
   }
   region.value = window.HOLIDAYS[state.settings.region] ? state.settings.region : 'none';
+
+  /* 시간대는 브라우저가 아는 것을 그대로 씁니다 — 목록을 우리가 들고 있으면
+     여름시간이 바뀔 때마다 따라 고쳐야 합니다. 아주 옛 브라우저는
+     supportedValuesOf가 없어서, 그때는 지금 쓰는 값 하나만 보여줍니다. */
+  const zone = $('s-timezone');
+  const mine = browserZone();
+  const all = typeof Intl.supportedValuesOf === 'function'
+    ? Intl.supportedValuesOf('timeZone')
+    : [mine];
+  const listed = all.includes(state.settings.timezone) || !state.settings.timezone
+    ? all
+    : [state.settings.timezone, ...all];
+  zone.replaceChildren();
+  for (const name of listed) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name.replace(/_/g, ' ');
+    zone.append(opt);
+  }
+  zone.value = state.settings.timezone || mine;
+}
+
+/** 이 브라우저가 있다고 생각하는 곳. 못 알아내면 UTC. */
+function browserZone() {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+}
+
+/**
+ * 시간대를 한 번도 안 고른 달력이면, 이 브라우저가 있는 곳으로 채워둡니다.
+ * 표의 기본값이 UTC라 그냥 두면 한국에서도 아침 요약이 오후 5시에 옵니다.
+ *
+ * **고른 적이 있으면 건드리지 않습니다.** 여행지에서 앱을 열 때마다 기준이
+ * 따라 움직이면, 둘이 다른 곳에 있을 때 서로의 설정을 계속 덮어씁니다.
+ */
+function seedTimezone() {
+  if (state.settings.timezone && state.settings.timezone !== 'UTC') return;
+  const mine = browserZone();
+  if (mine === 'UTC' || mine === state.settings.timezone) return;
+  saveSetting({ timezone: mine }, 0);
 }
 
 /** 설정에 담긴 언어를 화면에 입힙니다. 바뀌었으면 true. */
@@ -1737,6 +1781,7 @@ function applyState(data) {
   state.settings = data.settings || state.settings;
   state.photos = data.photos || [];
   applyLocale();   // 서버가 정한 언어. 화면 글자는 여기서 다시 칠해집니다
+  seedTimezone();  // 아직 아무도 안 고른 시간대는 이 기기 것으로 채워둡니다
   refreshPhotos();
   renderTitle();
   restoreTheme();
@@ -1987,6 +2032,9 @@ $('s-locale').addEventListener('change', () => {
 $('s-region').addEventListener('change', () => {
   saveSetting({ region: $('s-region').value }, 0);
   render();
+});
+$('s-timezone').addEventListener('change', () => {
+  saveSetting({ timezone: $('s-timezone').value }, 0);
 });
 $('s-people').addEventListener('click', (e) => {
   // 글자 칸을 눌렀으면 이름만 고치는 겁니다

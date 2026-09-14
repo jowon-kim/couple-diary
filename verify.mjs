@@ -25,6 +25,20 @@ export function loadEnvFile(path = '.env.local') {
   }
 }
 
+/**
+ * Vercel will not hand back a value it stored as a Secret. `vercel env pull`
+ * writes `[SENSITIVE]` in its place, and reading that as the real thing makes
+ * this script say the VAPID keys are the wrong shape — which would send someone
+ * off to generate a new pair and kill notifications on every device that has
+ * them on. So placeholders get their own answer.
+ */
+const HIDDEN = '[SENSITIVE]';
+const hidden = (v) => v === HIDDEN;
+const HIDDEN_HOW =
+  'Vercel will not hand Secret values back, so this cannot be checked here ' +
+  '(env pull writes [SENSITIVE] instead). Look at the value in the Vercel dashboard — ' +
+  'do not generate a new one because of this warning';
+
 /* VAPID keys are a P-256 pair: 87 characters public, 43 private, both base64url. */
 const shaped = (v, len) => typeof v === 'string' && v.length === len && /^[A-Za-z0-9_-]+$/.test(v);
 const MAKE_KEYS = 'make a pair with node -e "console.log(require(\'web-push\').generateVAPIDKeys())"';
@@ -32,28 +46,37 @@ const MAKE_KEYS = 'make a pair with node -e "console.log(require(\'web-push\').g
 export async function checkEnv() {
   const password = process.env.DIARY_PASSWORD;
   if (!password) bad('DIARY_PASSWORD', 'vercel env add DIARY_PASSWORD — the password the two of you share');
+  else if (hidden(password)) warn('DIARY_PASSWORD', HIDDEN_HOW);
   else if (password.length < 12) warn('DIARY_PASSWORD', `only ${password.length} characters. Anyone with the URL reaches the login screen, so make it long`);
   else ok('DIARY_PASSWORD');
 
-  if (process.env.DIARY_SECRET) ok('DIARY_SECRET');
+  if (hidden(process.env.DIARY_SECRET)) warn('DIARY_SECRET', HIDDEN_HOW);
+  else if (process.env.DIARY_SECRET) ok('DIARY_SECRET');
   else bad('DIARY_SECRET', 'vercel env add DIARY_SECRET — any long random string');
+
+  if (hidden(process.env.CRON_SECRET)) warn('CRON_SECRET', HIDDEN_HOW);
+  else if (process.env.CRON_SECRET) ok('CRON_SECRET');
+  else bad('CRON_SECRET', 'vercel env add CRON_SECRET — the key the outside clock knocks with (see "Reminders on the day" in AGENTS.md)');
 
   for (const [name, len] of [['VAPID_PUBLIC_KEY', 87], ['VAPID_PRIVATE_KEY', 43]]) {
     const value = process.env[name];
     if (shaped(value, len)) ok(name);
+    else if (hidden(value)) warn(name, HIDDEN_HOW);
     else if (value) bad(name, `wrong shape (expected ${len} base64url characters, got ${value.length}). ${MAKE_KEYS}`);
     else bad(name, MAKE_KEYS);
   }
 
   try {
     const { subject } = await import('./lib/push.js');
-    ok(`push contact address (${subject()})`);
+    const at = subject();
+    if (hidden(at)) warn('push contact address', HIDDEN_HOW);
+    else ok(`push contact address (${at})`);
   } catch {
     bad('push contact address', 'put your deployed URL in VAPID_SUBJECT or DIARY_URL (on Vercel, VERCEL_URL covers it)');
   }
 }
 
-const WANT = ['events', 'settings', 'photos', 'push_subs'];
+const WANT = ['events', 'settings', 'photos', 'push_subs', 'reminders_sent'];
 
 /** query(text) -> rows. Tests pass PGlite in (the same trick as useClient in lib/db.js). */
 export async function checkDb(query) {
@@ -88,12 +111,14 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   loadEnvFile();
 
   const dbUrl = process.env.DATABASE_URL || process.env.POSTGRES_URL;
-  if (dbUrl) ok('DATABASE_URL');
+  const reachable = dbUrl && !hidden(dbUrl);
+  if (reachable) ok('DATABASE_URL');
+  else if (dbUrl) warn('DATABASE_URL', `${HIDDEN_HOW}. To create the tables, paste schema.sql into the Neon SQL Editor instead`);
   else bad('DATABASE_URL', 'attach a database with vercel integration add neon, then vercel env pull .env.local');
 
   await checkEnv();
 
-  if (dbUrl) {
+  if (reachable) {
     try {
       const { neon } = await import('@neondatabase/serverless');
       const sql = neon(dbUrl);

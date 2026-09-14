@@ -472,5 +472,122 @@ ok('subject survives without DIARY_URL',
 ok('subject complains when nothing is set',
   withEnv({}, () => { try { subject(); return false; } catch { return true; } }));
 
+
+/* ── 오늘 일정 알림 (바깥 시계가 두드립니다) ── */
+process.env.CRON_SECRET = 'testcron';
+const { default: cron } = await import('./api/cron.js');
+
+const DAY = '2026-10-05';
+const knock = (at, key = 'testcron') => call(cron, { method: 'GET', query: { key, at } });
+const tick = (hhmm) => knock(`${DAY}T${hhmm}`);
+
+r = await call(cron, { method: 'GET' });
+ok('cron needs the key', r.status === 401);
+
+r = await call(cron, { method: 'GET', query: { key: 'wrong' } });
+ok('cron rejects a wrong key', r.status === 401);
+
+r = await call(cron, { method: 'DELETE', query: { key: 'testcron' } });
+ok('cron wrong method 405', r.status === 405);
+
+/* 시간대는 설정에 담깁니다 — 아무 값이나 담기면 알림이 엉뚱한 시각에 갑니다 */
+r = await call(settings, { method: 'PATCH', token, body: { timezone: 'Asia/Seoul' } });
+ok('a time zone is saved', r.body.timezone === 'Asia/Seoul', String(r.body.timezone));
+
+r = await call(settings, { method: 'PATCH', token, body: { timezone: 'Mars/Olympus' } });
+ok('an unknown time zone falls back to UTC', r.body.timezone === 'UTC', String(r.body.timezone));
+
+r = await call(settings, { method: 'PATCH', token, body: { locale: 'en', timezone: 'Asia/Seoul' } });
+ok('the time zone survives a locale change', r.body.timezone === 'Asia/Seoul');
+
+/* 둘 다 받아야 하는 알림이라 기기를 둘 다 켭니다 */
+await subscribe('a', LAPTOP);
+await subscribe('b', PHONE);
+
+const plant = async (body) => (await call(eventsCreate, { method: 'POST', token, body })).body;
+const dawn = await plant({ title: 'red-eye flight', date: DAY, time: '03:00' });
+const airport = await plant({ title: 'leave for airport', date: DAY, time: '06:00', memo: 'passport!' });
+await plant({ title: 'overslept', date: DAY, time: '07:00' });
+await plant({ title: 'dentist', date: DAY, time: '09:30' });
+await plant({ title: 'walk', date: DAY });
+await plant({ title: 'rent', date: '2026-04-05', time: '10:00', repeat: 'monthly' });
+await plant({ title: 'trip', date: '2026-10-04', endDate: '2026-10-06' });
+
+pushed.length = 0;
+r = await tick('03:00');
+ok('nothing before the clock starts at 4', r.status === 200 && r.body.sent.length === 0);
+ok('the answer says which zone it read', r.body.zone === 'Asia/Seoul', String(r.body.zone));
+
+r = await tick('04:00');
+ok('an event before 4am is pulled forward to 4', r.body.sent.join() === `soon: ${dawn.title}`, JSON.stringify(r.body.sent));
+ok('both people get it', pushed.length === 2, String(pushed.length));
+
+pushed.length = 0;
+r = await tick('04:10');
+ok('the same reminder does not go twice', r.body.sent.length === 0 && pushed.length === 0);
+
+r = await tick('05:30');
+ok('an early event fires 30 minutes ahead', r.body.sent.join() === 'soon: leave for airport', JSON.stringify(r.body.sent));
+ok('the reminder says the time and the memo',
+  pushed[0]?.title === 'Starting soon' && pushed[0]?.body === '06:00 leave for airport\npassport!', JSON.stringify(pushed[0]));
+ok('the reminder groups apart from the event itself', pushed[0]?.tag === `soon:${airport.id}`);
+
+pushed.length = 0;
+r = await tick('06:50');
+ok('a reminder more than 15 minutes late is dropped', r.body.sent.length === 0 && pushed.length === 0);
+
+r = await tick('08:00');
+ok('the rest come as one digest at 8', r.body.sent.join() === 'today: 3 event(s)', JSON.stringify(r.body.sent));
+ok('the digest counts in the title', pushed[0]?.title === '3 events today', JSON.stringify(pushed[0]?.title));
+ok('the digest lists all-day first, then by time',
+  pushed[0]?.body === 'All day walk\n09:30 dentist\n10:00 rent', JSON.stringify(pushed[0]?.body));
+ok('the digest leaves out what already fired', !pushed[0]?.body.includes('airport'));
+ok('the digest goes to both too', pushed.length === 2, String(pushed.length));
+
+pushed.length = 0;
+r = await tick('08:10');
+ok('the digest does not go twice', r.body.sent.length === 0 && pushed.length === 0);
+
+r = await tick('12:00');
+ok('nothing after the window closes', r.body.sent.length === 0 && pushed.length === 0);
+
+/* 여러 날 일정은 시작하는 날에만 — 걸친 날마다 아침을 울리지 않습니다 */
+r = await knock('2026-10-04T08:00');
+ok('a trip is announced on the day it starts', r.body.sent.join() === 'today: 1 event(s)', JSON.stringify(r.body.sent));
+ok('one event reads as one in the title', pushed[0]?.title === '1 event today', JSON.stringify(pushed[0]?.title));
+ok('the trip is not repeated on the days it spans', pushed[0]?.body === 'All day trip', JSON.stringify(pushed[0]?.body));
+
+/* 알림도 두 사람이 고른 언어로 갑니다 */
+pushed.length = 0;
+r = await knock('2026-10-03T08:00');
+ok('a quiet day stays quiet', r.body.sent.length === 0 && pushed.length === 0);
+
+await call(settings, { method: 'PATCH', token, body: { locale: 'ko' } });
+await plant({ title: '치과', date: '2026-10-02', time: '09:30' });
+await plant({ title: '산책', date: '2026-10-02' });
+pushed.length = 0;
+r = await knock('2026-10-02T08:00');
+ok('the digest speaks the language they picked',
+  pushed[0]?.title === '오늘 일정 2개', JSON.stringify(pushed[0]?.title));
+ok('and so does the all-day label',
+  pushed[0]?.body === '종일 산책\n09:30 치과', JSON.stringify(pushed[0]?.body));
+await call(settings, { method: 'PATCH', token, body: { locale: 'en' } });
+
+/* 규칙 자체 — 시각 계산은 순수 함수라 따로 봅니다 */
+const { plan, localNow, awake, resolveZone } = await import('./lib/remind.js');
+ok('30 minutes before is the rule', plan([{ time: '06:00' }], 5 * 60 + 30).length === 1);
+ok('not a minute earlier', plan([{ time: '06:00' }], 5 * 60 + 25).length === 0);
+ok('8am events wait for the digest',
+  plan([{ time: '08:10' }], 7 * 60 + 40).length === 0 && plan([{ time: '08:10' }], 8 * 60)[0]?.kind === 'today');
+ok('the clock window is 4am to 8:15', !awake(3 * 60 + 59) && awake(4 * 60) && awake(8 * 60) && !awake(8 * 60 + 15));
+ok('an unknown zone falls back to UTC', resolveZone('Mars/Olympus') === 'UTC' && resolveZone('Asia/Seoul') === 'Asia/Seoul');
+ok('the day turns over where they live, not where the server is',
+  localNow('Asia/Seoul', new Date('2026-09-14T22:30:00Z')).date === '2026-09-15'
+  && localNow('UTC', new Date('2026-09-14T22:30:00Z')).date === '2026-09-14');
+ok('midnight is 0 minutes, not 1440',
+  localNow('Asia/Seoul', new Date('2026-09-14T15:00:00Z')).minutes === 0);
+ok('zones west of UTC read the earlier day',
+  localNow('America/New_York', new Date('2026-09-14T02:00:00Z')).date === '2026-09-13');
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

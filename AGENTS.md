@@ -6,7 +6,7 @@ user says **"how do I use this?"**, follow [First install](#first-install).
 ## What this is
 
 A calendar two people share. Add an event and it lands on the other person's
-lock screen.
+lock screen, and it speaks up again on the morning of the day itself.
 
 - **No build step.** No bundler, no framework. `public/` is served as-is
 - **Two runtime dependencies** — `@neondatabase/serverless`, `web-push`
@@ -30,6 +30,8 @@ These two are the only things you cannot do.
 - **`vercel login`** — opens a browser. Ask them to sign in
 - **Add to Home Screen on iPhone** — required before notifications can be turned
   on (see below)
+- **Registering the outside clock** — only needed for the reminders on the day.
+  It takes an account ([Reminders on the day](#reminders-on-the-day))
 
 Everything else happens in the terminal.
 
@@ -51,7 +53,7 @@ Make a VAPID key pair. These sign the phone notifications.
 node -e "console.log(require('web-push').generateVAPIDKeys())"
 ```
 
-Set four environment variables (`npx vercel env add <NAME> production`).
+Set five environment variables (`npx vercel env add <NAME> production`).
 
 | Name | Value |
 |---|---|
@@ -59,6 +61,10 @@ Set four environment variables (`npx vercel env add <NAME> production`).
 | `DIARY_SECRET` | any long random string. You can generate it |
 | `VAPID_PUBLIC_KEY` | the public key from above (87 characters) |
 | `VAPID_PRIVATE_KEY` | the private key from above (43 characters) |
+| `CRON_SECRET` | any long random string. You can generate it |
+
+`CRON_SECRET` is the key the outside clock knocks with. It has nothing to do
+with logging in — see [Reminders on the day](#reminders-on-the-day).
 
 Do **not** set `DATABASE_URL`. The Neon integration provides it.
 
@@ -69,8 +75,111 @@ npm run verify                        # fix things until every line is a ✓
 npx vercel deploy --prod
 ```
 
+### If you see `[SENSITIVE]`
+
+Vercel does not hand back a value it stored as a Secret. When `env pull` says
+
+```
+! 7 Secret values cannot be pulled from the `production` Environment.
+```
+
+`.env.local` holds placeholders, and `npm run schema` cannot reach the database.
+Take either road.
+
+- **Paste `schema.sql` into the Neon SQL Editor** — the surest one. Every
+  statement is `if not exists`, so running it again is safe
+- Take the connection string from the Neon dashboard and run
+  `DATABASE_URL=... npm run schema`
+
+`npm run verify` also prints several ⚠ in this state. **That is correct** — it
+means the value could not be read, not that it is wrong. Never generate new
+VAPID keys because of one.
+
 Finish by giving the user **the URL and the password**, and tell them that on
 iPhone they must add it to the home screen before notifications will turn on.
+
+## Reminders on the day
+
+Events also announce themselves on the day they happen. Two rules:
+
+- **Starts before 8am** — one reminder **30 minutes before** it starts
+- **Anything else** (after 8am, or all day) — one summary at **8am**
+
+Unlike the change notifications, these go to **both** people. An event spanning
+several days is announced on the day it starts, not every day it covers.
+
+"Today" and "8am" are read in the time zone stored in settings. The app fills
+that in from the browser the first time it is opened and the two of them can
+change it in settings.
+
+### Why not Vercel cron
+
+On the free (Hobby) plan a cron job runs **once a day, and lands anywhere in a
+±59 minute window**. That makes "30 minutes before" impossible and lets the 8am
+summary arrive at 8:59. It also lives in `vercel.json`, not the dashboard —
+which is why there is nothing to click.
+
+So `/api/cron` is open instead and something **outside** knocks on it. Vercel
+only receives the request, so the free plan is untouched.
+
+### Registering the clock (the user does this)
+
+[cron-job.org](https://cron-job.org) is free, knocks to the minute, and lets you
+pick a time zone. Create an account and add one job:
+
+| Field | Value |
+|---|---|
+| URL | `https://<your address>/api/cron?key=<CRON_SECRET>` |
+| Time zone | the same one set in the app |
+| Hours | 4, 5, 6, 7, 8 |
+| Minutes | `*/5` |
+
+A plain `GET` is all it takes. If the service can send headers, use
+`Authorization: Bearer <CRON_SECRET>` and keep the key out of the URL.
+
+Do not stretch the interval to every 15 minutes to save quota. A reminder is
+covered by a single knock at that spacing, so one late knock loses it silently.
+At `*/5` three knocks share the job.
+
+### Why only 4am to 8am
+
+**Neon's free plan gives 100 CU-hours a month**, and a compute stays awake for
+**five minutes after** a query before it suspends. Knocking every five minutes
+around the clock never lets it sleep — 720 hours a month, far past the
+allowance. Four hours a day is 120 hours a month, about 30 CU-hours at 0.25 CU.
+
+Events after 8am are covered by the 8am summary, so there is no reason to knock
+during the day, and only events before 8am need a 30-minutes-ahead reminder.
+**Widening the window spends the free allowance.** Events starting before 4am
+are pulled forward to 4am, since nothing is knocking before then.
+
+Note that this repository reads the time zone from the database, so **every
+knock wakes the database** — which is exactly why the schedule has to stay
+inside that window.
+
+### Checking it by hand
+
+`?at=` pretends it is any time you like. Real notifications go out, so take care.
+
+```bash
+curl "https://<your address>/api/cron?key=<CRON_SECRET>&at=2026-10-05T08:00"
+# {"at":{"date":"2026-10-05","minutes":480},"zone":"Asia/Seoul","sent":["today: 2 event(s)"]}
+```
+
+An empty `sent` means there was nothing to send. The same reminder goes out only
+once a day (`reminders_sent` remembers), and a knock more than 15 minutes late is
+skipped so a server waking up does not dump yesterday's reminders at once.
+
+## Once it is running
+
+- **Pushing to the default branch deploys.** If the GitHub integration is on,
+  there is no need to run `vercel deploy`. Check with `npx vercel ls --prod`
+- **Changing an environment variable needs a redeploy.** Values are baked in at
+  deploy time. `npx vercel redeploy <production url>` picks up the new ones
+- **Always run `vercel` from the project directory.** Run it from a home
+  directory and Vercel registers *that* as the project, after which
+  `vercel deploy --prod` ships the whole home folder as production. When it asks
+  whether to deploy a directory and the path is not the project, answer **no**
 
 ## Never do these
 
@@ -83,12 +192,15 @@ iPhone they must add it to the home screen before notifications will turn on.
   plan gives only a six-hour restore window
 - **Never raise the Neon compute above 0.25 CU.** It burns the free allowance
   that much faster
+- **Never run the outside clock around the clock.** The database never gets to
+  sleep and the Neon free allowance runs out
+  ([Reminders on the day](#reminders-on-the-day))
 
 ## How to check your work
 
 | Command | What | If it fails |
 |---|---|---|
-| `npm test` | 109 handler tests against an in-memory Postgres, using the real handlers | If you changed code, it has to pass |
+| `npm test` | 145 handler tests against an in-memory Postgres, using the real handlers | If you changed code, it has to pass |
 | `npm run verify` | environment variables, database, tables | Each ✗ prints the fix. Exits 1 |
 | `npm run i18n` | how complete each language pack is | A missing key falls back to English rather than breaking |
 
@@ -106,6 +218,9 @@ It is nearly always one of these three.
 3. **It worked and then went quiet** — a known trait of iOS web push. The app
    re-subscribes on open when it notices the subscription is gone; if that isn't
    enough, toggle notifications off and on in settings
+4. **Changes notify fine but the morning reminder never comes** — that is the
+   outside clock, not the app. Read its run history first. If it logged a 200,
+   knock by hand with `?at=` ([Reminders on the day](#reminders-on-the-day))
 
 ## Changing the code
 

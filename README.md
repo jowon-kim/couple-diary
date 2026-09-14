@@ -3,8 +3,8 @@
 **English** · [한국어](README.ko.md)
 
 A shared calendar for two people. When one of you adds something, it shows up on
-the other's lock screen. No KakaoTalk, no Slack, no third party — this app sends
-the push itself.
+the other's lock screen, and on the morning of the day it speaks up again. No
+KakaoTalk, no Slack, no third party — this app sends the push itself.
 
 <!-- Put a screenshot here: ![](docs/screenshot.png) -->
 
@@ -13,11 +13,13 @@ the push itself.
 - **Fits entirely in free tiers** — Vercel Hobby + Neon Free. No credit card
 - **iOS web push actually works**, including silent re-subscription when Safari
   drops it
+- **Reminders on the day** — 30 minutes before an early start, or one summary at
+  8am. In your own time zone
 - **English and Korean**, with i18n that needs no library — a language pack is a
   plain object in one file
 - Add to home screen and it opens like an app (PWA)
 
-Roughly 5,200 lines across `api/`, `lib/` and `public/`, with 109 integration
+Roughly 5,400 lines across `api/`, `lib/` and `public/`, with 145 integration
 tests that run against an in-memory Postgres.
 
 ## Install
@@ -77,6 +79,18 @@ a Safari tab. Share → "Add to Home Screen" → open it from that icon, then al
 (iOS 16.4+)
 
 Android and desktop Chrome just work.
+
+### Reminders on the day
+
+Events also announce themselves on the day itself: **30 minutes before** anything
+starting before 8am, and **one summary at 8am** for the rest. Both of you get
+these. They need one more piece of setup — something outside has to knock on
+`/api/cron` on a schedule, because Vercel's free cron only runs once a day with
+an hour of slack. [`AGENTS.md`](AGENTS.md#reminders-on-the-day) walks through it,
+and an agent can do the whole thing for you.
+
+The time zone that decides "today" and "8am" lives in settings. The app fills it
+in from your browser the first time you open it.
 
 ## Making it yours
 
@@ -162,8 +176,8 @@ lib/                store.js holds every SQL statement · push.js sends notifica
 public/             the UI. served as-is, no build
 public/i18n/        language packs
 public/holidays/    holiday sets, one file per country
-schema.sql          four tables
-test.mjs            109 integration tests against the real handlers
+schema.sql          five tables
+test.mjs            145 integration tests against the real handlers
 ```
 
 ```bash
@@ -177,7 +191,7 @@ Holiday sets and language packs are the most useful things you can send — both
 are a single self-contained file. See the two sections above.
 
 ```bash
-npm test        # 109 handler tests, no accounts needed
+npm test        # 145 handler tests, no accounts needed
 npm run i18n    # how complete each language pack is
 ```
 

@@ -27,6 +27,7 @@ create table if not exists settings (
   subtitle        text not null default '',
   theme           text not null default 'peach',
   locale          text not null default 'en',
+  timezone        text not null default 'UTC',
   region          text not null default 'none',
   name_a          text not null default '',
   name_b          text not null default '',
@@ -42,6 +43,9 @@ alter table settings add column if not exists theme text not null default 'peach
 -- 언어와 공휴일 묶음. 둘 다 두 사람이 같은 것을 봅니다.
 alter table settings add column if not exists locale text not null default 'en';
 alter table settings add column if not exists region text not null default 'none';
+
+-- 오늘 일정 알림이 쓰는 시간대. "오늘"과 "아침 8시"가 어디 기준인지 정합니다.
+alter table settings add column if not exists timezone text not null default 'UTC';
 
 -- 예전 판은 테마를 한국어 이름으로 담았습니다. 쓰던 색을 잃지 않게 id로 옮깁니다.
 update settings set theme = case theme
@@ -75,3 +79,11 @@ create table if not exists push_subs (
 );
 
 create index if not exists push_subs_owner_idx on push_subs (owner);
+
+-- 오늘 일정 알림을 이미 보냈는지 적어두는 자리.
+-- 바깥 시계가 5분마다 두드리기 때문에, 이 표가 없으면 같은 알림이 세 번 갑니다.
+-- key는 '날짜:종류' 또는 '날짜:일정id:종류' — 하루가 지나면 새 key라 다시 옵니다.
+create table if not exists reminders_sent (
+  key     text primary key,
+  sent_at timestamptz not null default now()
+);
