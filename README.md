@@ -24,6 +24,11 @@ tests that run against an in-memory Postgres.
 
 ## Install
 
+### Never used a terminal?
+
+Follow [**the step-by-step guide**](docs/GUIDE.md). It's all in the browser —
+one Deploy button, a few copy-and-pastes, about 20 minutes.
+
 ### Let an agent do it (easiest)
 
 Clone the repo, open a CLI coding agent in that folder — Claude Code, Codex,
