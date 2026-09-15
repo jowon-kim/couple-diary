@@ -379,12 +379,15 @@ function holidayOn(dateStr) {
 /* 여러 날 일정은 칸마다 점을 찍지 않고 칸을 이어 띠로 그립니다. 열하루짜리가
    점 열한 개가 되면 달력이 그걸로 도배됩니다. 한 칸에 띠는 이만큼까지 쌓고,
    넘치는 것은 +n에 셉니다. */
-const SPAN_LANES = 2;
+const SPAN_LANES = 5;
+/* 띠가 이 줄 수를 넘는 주는 띠를 얇게 그려서, 다섯 줄이 쌓여도 그 주만 너무 길어지지 않게 */
+const SPAN_DENSE = 3;
 const spanKey = (item) => `${item.event.id}|${item.start}`;
 
 /**
  * 띠마다 몇 번째 줄에 놓일지. 먼저 시작하는 것, 같이 시작하면 긴 것부터 비어 있는
- * 가장 윗줄을 잡습니다. 한 번 잡은 줄은 끝날 때까지 그대로라 띠가 꺾이지 않아요.
+ * 가장 윗줄을 잡습니다. 주마다 따로 부릅니다 — 한 주 안에서는 줄이 그대로라 띠가
+ * 꺾이지 않고, 다음 주에는 앞서 끝난 띠가 비운 윗줄로 올라가 빈 줄이 남지 않아요.
  */
 function spanLanes(map) {
   const spans = new Map();
@@ -408,7 +411,7 @@ function spanLanes(map) {
 /* 한 칸의 띠 조각들. 같은 주의 칸은 모두 같은 줄 수를 그려야 띠 높이가 맞습니다. */
 function spanBars(date, key, items, lanes, rowLanes) {
   const box = document.createElement('span');
-  box.className = 'spans';
+  box.className = rowLanes >= SPAN_DENSE ? 'spans dense' : 'spans';
   const byLane = [];
   items.forEach((item) => { byLane[lanes.get(spanKey(item))] = item; });
 
@@ -441,16 +444,18 @@ function buildMonthCells(year, monthIndex) {
   const gridEnd = addDays(gridStart, cells - 1);
 
   const map = expand(ymd(gridStart), ymd(gridEnd));
-  const lanes = spanLanes(map);
   const frag = document.createDocumentFragment();
 
-  // 주마다 띠가 몇 줄 필요한지
-  const weekLanes = [];
-  for (let i = 0; i < cells; i++) {
-    const week = Math.floor(i / 7);
-    for (const item of map.get(ymd(addDays(gridStart, i))) || []) {
-      if (item.start) weekLanes[week] = Math.max(weekLanes[week] || 0, Math.min(lanes.get(spanKey(item)) + 1, SPAN_LANES));
+  // 주마다 띠 줄을 새로 잡고, 그 주에 몇 줄이 필요한지 셉니다
+  const weeks = [];
+  for (let w = 0; w < cells / 7; w++) {
+    const days = new Map();
+    for (let d = 0; d < 7; d++) {
+      const key = ymd(addDays(gridStart, w * 7 + d));
+      days.set(key, map.get(key) || []);
     }
+    const lanes = spanLanes(days);
+    weeks.push({ lanes, rows: lanes.size ? Math.min(Math.max(...lanes.values()) + 1, SPAN_LANES) : 0 });
   }
 
   for (let i = 0; i < cells; i++) {
@@ -488,7 +493,8 @@ function buildMonthCells(year, monthIndex) {
       cell.append(name);
     }
 
-    if (spanning.length) cell.append(spanBars(date, key, spanning, lanes, weekLanes[Math.floor(i / 7)]));
+    const { lanes, rows } = weeks[Math.floor(i / 7)];
+    if (spanning.length) cell.append(spanBars(date, key, spanning, lanes, rows));
 
     const branch = document.createElement('span');
     branch.className = 'branch';

@@ -720,6 +720,11 @@ button, input, select, textarea { font: inherit; color: inherit; }
   pointer-events: none;
 }
 .day .bar.from .bar-label { left: 8px; width: calc(var(--run) * 100% - 13px); }
+/* 띠가 세 줄 넘게 쌓이는 주 — 줄마다 조금씩 얇게 해서 다섯 줄이 칸 두 개 높이를 넘지 않게 */
+.day .spans.dense { gap: 1.5px; }
+.day .spans.dense .bar { height: 12px; }
+.day .spans.dense .bar.from { box-shadow: inset 2.5px 0 var(--tone); }
+.day .spans.dense .bar-label { font-size: 8.5px; line-height: 12px; }
 
 /* 가지에 매달린 열매 */
 .branch {

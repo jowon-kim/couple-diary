@@ -233,14 +233,32 @@ ok('and is left alone', savedLocale().length === 0, fetches);
   ok('the single-day event still gets its dot',
     kids(kids($('grid').children.find((c) => c.dataset.date === lunch.date), 'branch')[0], 'cherry-dot').length === 1);
 
-  /* 겹치면 줄을 나누고, 두 줄을 넘으면 +n으로 */
+  /* 겹치면 줄을 나누고, 다섯 줄까지 보여주고, 넘치면 +n으로 */
   const overlap = (id, owner) => ({ ...trip, id, owner, title: id });
-  globalThis.__events = [trip, overlap('second', 'a'), overlap('third', 'b')];
+  globalThis.__events = [trip, ...['2', '3', '4', '5', '6'].map((n, i) => overlap(n, ['a', 'b', 'both'][i % 3]))];
   run('state.events = __events; render()');
   const first = $('grid').children.find((c) => c.dataset.date === trip.date);
   const lanes = kids(kids(first, 'spans')[0], 'bar');
-  ok('overlapping bands take separate lanes', lanes.length === 2 && lanes[0].className !== lanes[1].className, lanes.map((b) => b.className));
-  ok('and the one that does not fit is counted', kids(kids(first, 'branch')[0], 'more')[0]?.textContent === '+1');
+  ok('five overlapping bands all show', lanes.length === 5 && lanes.every((b) => !b.classList.contains('vacant')), lanes.map((b) => b.className));
+  ok('drawn thinner so the week does not balloon', kids(first, 'spans')[0].classList.contains('dense'));
+  ok('and the sixth is counted', kids(kids(first, 'branch')[0], 'more')[0]?.textContent === '+1');
+
+  globalThis.__events = [trip, overlap('second', 'a')];
+  run('state.events = __events; render()');
+  ok('two bands keep the roomy size', !kids($('grid').children.find((c) => c.dataset.date === trip.date), 'spans')[0].classList.contains('dense'));
+}
+
+/* 줄은 주마다 새로 잡습니다 — 앞 주에 둘째 줄이던 띠도, 윗줄이 비면 다음 주엔 맨 위로 */
+{
+  const band = (id, date, endDate) => ({ id, title: id, date, endDate, time: null, endTime: null, memo: '', owner: 'both', repeat: 'none' });
+  globalThis.__events = [band('short', '2026-09-06', '2026-09-08'), band('long', '2026-09-07', '2026-09-15')];
+  run(`state.events = __events; state.cursor = new Date(2026, 8, 1); render()`);
+  const cell = (date) => $('grid').children.find((c) => c.dataset.date === date);
+  const bars = (date) => cell(date).children.find((c) => c.classList?.contains('spans'))?.children || [];
+  ok('a band sits under the one that started first', bars('2026-09-07').length === 2 && bars('2026-09-07')[1].className.includes('both'),
+    bars('2026-09-07').map((b) => b.className));
+  ok('and moves up the next week instead of leaving a gap', bars('2026-09-13').length === 1 && !bars('2026-09-13')[0].classList.contains('vacant'),
+    bars('2026-09-13').map((b) => b.className));
 }
 
 /* 반복 — 매달/매년 밑에 위에서 고른 날짜를 풀어 씁니다 */
