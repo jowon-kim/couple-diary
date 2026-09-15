@@ -243,5 +243,43 @@ ok('and is left alone', savedLocale().length === 0, fetches);
   ok('and the one that does not fit is counted', kids(kids(first, 'branch')[0], 'more')[0]?.textContent === '+1');
 }
 
+/* 반복 — 매달/매년 밑에 위에서 고른 날짜를 풀어 씁니다 */
+{
+  run(`i18n.setLocale('ko', { remember: false })`);
+  const summary = () => ($('f-repeat-summary').hidden ? null : $('f-repeat-summary').textContent);
+  const lunch = { id: 'lunch', title: '오점뭐', date: '2026-09-15', endDate: '2026-09-25', time: null, endTime: null, memo: '', owner: 'both', repeat: 'monthly' };
+  globalThis.__lunch = lunch;
+  error = attempt('openEditor(__lunch)');
+  ok('a monthly multi-day event reads back its days', !error && summary() === '매달 15일 ~ 25일', error || summary());
+
+  run(`setRepeat('yearly')`);
+  ok('yearly names the month too', summary() === '매년 9월 15일 ~ 9월 25일', summary());
+
+  $('f-multi').checked = false;
+  $('f-multi').dispatchEvent({ type: 'change' });
+  ok('turning off several days leaves one day', summary() === '매년 9월 15일', summary());
+
+  run(`setRepeat('none')`);
+  ok('no repeat, no line', summary() === null, summary());
+  run(`$('editor').close()`);
+
+  globalThis.__lunch = { ...lunch, date: '2026-09-28', endDate: '2026-10-03' };
+  run('openEditor(__lunch)');
+  ok('running into the next month says so', summary() === '매달 28일 ~ 다음 달 3일', summary());
+  run(`$('editor').close()`);
+
+  error = attempt(`openEditor(null, '${year}-09-20')`);
+  $('f-repeat-on').checked = true;
+  $('f-repeat-on').dispatchEvent({ type: 'change' });
+  ok('ticking repeats on a new event shows the day at once', !error && summary() === '매달 20일', error || summary());
+  run(`$('editor').close()`);
+
+  run(`i18n.setLocale('en', { remember: false })`);
+  globalThis.__lunch = lunch;
+  run('openEditor(__lunch)');
+  ok('and in English', summary() === 'Every month, day 15 to 25', summary());
+  run(`$('editor').close()`);
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed ? 1 : 0);
