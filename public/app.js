@@ -565,14 +565,18 @@ function renderUpcoming() {
   list.replaceChildren();
 
   /* 여러 날 일정은 처음 보이는 날에 한 줄만 — 날마다 한 줄씩이면 열하루짜리 하나가
-     목록을 다 차지해서 다른 일정이 밀려납니다. 이미 시작했으면 오늘 줄에 섭니다. */
+     목록을 다 차지해서 다른 일정이 밀려납니다. 이미 시작했으면 오늘 줄에 섭니다.
+     반복 일정도 가장 가까운 한 번만 — 다음 달 것은 "매달"이라고 적어두면 압니다. */
   const listed = new Set();
+  const once = (item) => (item.event && item.event.repeat !== 'none' ? `every|${item.event.id}`
+    : item.start ? spanKey(item) : null);
   const rows = [...map.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, items]) => [date, items.filter((item) => {
-      if (!item.start) return true;
-      if (listed.has(spanKey(item))) return false;
-      listed.add(spanKey(item));
+      const key = once(item);
+      if (!key) return true;
+      if (listed.has(key)) return false;
+      listed.add(key);
       return true;
     })])
     .filter(([, items]) => items.length)
@@ -642,6 +646,9 @@ function entryRow(date, item, showDate, photoNo) {
   const bits = [];
   if (item.milestone) bits.push(t('item.milestone'));
   else bits.push(nameOf(item.owner));
+  // 목록엔 반복 일정이 한 번만 서니까 돌아온다는 걸 적어줍니다
+  if (showDate && item.event?.repeat === 'monthly') bits.push(t('editor.monthly'));
+  if (showDate && item.event?.repeat === 'yearly') bits.push(t('editor.yearly'));
   if (item.time) bits.push(prettyTimeRange(item.time, item.endTime));
   // 목록에서는 한 줄로 합쳐 기간을, 하루 보기에서는 그날이 며칠째인지를 적습니다
   if (item.start && showDate) bits.push(`${shortDate(item.start)} ~ ${shortDate(item.end)}`);

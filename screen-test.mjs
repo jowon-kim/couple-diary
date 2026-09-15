@@ -261,6 +261,23 @@ ok('and is left alone', savedLocale().length === 0, fetches);
     bars('2026-09-13').map((b) => b.className));
 }
 
+/* 다가오는 일 — 반복 일정은 가장 가까운 한 번만, "매달"이라고 적어서 */
+{
+  run(`i18n.setLocale('ko', { remember: false })`);
+  const day = (n) => run(`ymd(addDays(parse(TODAY), ${n}))`);
+  const ev = (id, date, endDate, repeat, time = null) => ({ id, title: id, date, endDate, time, endTime: null, memo: '', owner: 'both', repeat });
+  // 매달 돌아오는 이틀짜리와 하루짜리 — 45일 안에 두 번씩 들어옵니다
+  globalThis.__events = [ev('span', day(1), day(2), 'monthly'), ev('day', day(3), null, 'monthly', '09:00'), ev('plain', day(5), null, 'none')];
+  run(`state.events = __events; state.settings.since = null; render()`);
+  const rows = $('upcoming-list').children.map((li) => li.children[0].children[1]);
+  const titles = rows.map((body) => body.children[0].textContent);
+  ok('a repeating event is listed once', titles.filter((x) => x === 'span').length === 1 && titles.filter((x) => x === 'day').length === 1, titles);
+  ok('at its nearest date, in date order', titles.join() === 'span,day,plain', titles);
+  const meta = (id) => rows[titles.indexOf(id)].children[1].textContent;
+  ok('and says it comes back', meta('span').includes('매달') && meta('day').includes('매달') && !meta('plain').includes('매달'),
+    [meta('span'), meta('day'), meta('plain')]);
+}
+
 /* 반복 — 매달/매년 밑에 위에서 고른 날짜를 풀어 씁니다 */
 {
   run(`i18n.setLocale('ko', { remember: false })`);
