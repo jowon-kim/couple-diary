@@ -731,6 +731,7 @@ function bindRepeat() {
     btn.onclick = () => {
       state.formRepeat = btn.dataset.repeat;
       [...seg.children].forEach((c) => c.setAttribute('aria-checked', String(c === btn)));
+      renderRepeatSummary();
     };
   });
   // 체크해야 아래에 매달/매년이 나옵니다
@@ -752,6 +753,41 @@ function setRepeat(value) {
   const marked = on ? value : (markedRepeat() || 'monthly');
   [...$('f-repeat').children].forEach((c) =>
     c.setAttribute('aria-checked', String(c.dataset.repeat === marked)));
+  renderRepeatSummary();
+}
+
+/**
+ * 반복을 켜면 위에서 고른 날짜를 풀어 씁니다 — "매달 15일 ~ 25일", "매년 9월 15일".
+ * 매달/매년 단추만 봐서는 여러 날 일정이 달마다 통째로 돌아온다는 게 안 보여서요.
+ */
+function renderRepeatSummary() {
+  const summary = $('f-repeat-summary');
+  const date = $('f-date').value;
+  const repeat = state.formRepeat;
+  summary.hidden = repeat === 'none' || !date;
+  if (summary.hidden) return;
+
+  const end = $('f-multi').checked && $('f-end').value > date ? $('f-end').value : null;
+  const day = (s) => i18n.dateFmt({ day: 'numeric' }).format(parse(s));
+  const monthDay = (s) => i18n.dateFmt({ month: 'long', day: 'numeric' }).format(parse(s));
+
+  if (repeat === 'yearly') {
+    summary.textContent = end
+      ? t('editor.everyYearSpan', { start: monthDay(date), end: monthDay(end) })
+      : t('editor.everyYear', { date: monthDay(date) });
+    return;
+  }
+  if (!end) {
+    summary.textContent = t('editor.everyMonth', { day: day(date) });
+    return;
+  }
+  // 28일 ~ 다음 달 3일처럼 달을 넘기면 그렇다고 써줍니다. 한 달을 넘게 이어지면 날수로.
+  const s = parse(date);
+  const e = parse(end);
+  const months = (e.getFullYear() - s.getFullYear()) * 12 + e.getMonth() - s.getMonth();
+  summary.textContent = months === 0 ? t('editor.everyMonthSpan', { start: day(date), end: day(end) })
+    : months === 1 ? t('editor.everyMonthSpanNext', { start: day(date), end: day(end) })
+    : t('editor.everyMonthLong', { start: day(date), days: diffDays(date, end) + 1 });
 }
 
 /* ── 커스텀 시간 고르기 ──────────────────── */
@@ -1089,6 +1125,7 @@ function bindDatePicker() {
           $('f-end').value = key;
           setDateLabel('f-end');
         }
+        if (target === 'f-date' || target === 'f-end') renderRepeatSummary();
       });
     });
   });
@@ -2101,6 +2138,7 @@ $('f-delete').addEventListener('click', deleteEvent);
 $('f-multi').addEventListener('change', (e) => {
   syncMultiDay();
   if (e.target.checked && !$('f-end').value) { $('f-end').value = $('f-date').value; setDateLabel('f-end'); }
+  renderRepeatSummary();
   if (e.target.checked) bringIntoView($('f-end-wrap'));
 });
 $('open-settings').addEventListener('click', openSettings);
